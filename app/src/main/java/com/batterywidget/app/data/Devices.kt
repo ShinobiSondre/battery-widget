@@ -20,14 +20,14 @@ data class Item(val name: String, val level: Int, val icon: IconKind, val chargi
 object Perms {
     /** What to ask Android for so the app can see Bluetooth devices and AirPods. */
     val needed: Array<String>
-        get() = when {
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(
-                Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN,
-                Manifest.permission.POST_NOTIFICATIONS
-            )
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-                arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
-            else -> arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        get() {
+            val list = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                list += Manifest.permission.BLUETOOTH_CONNECT
+                list += Manifest.permission.BLUETOOTH_SCAN
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) list += Manifest.permission.POST_NOTIFICATIONS
+            return list.toTypedArray()
         }
 
     fun granted(ctx: Context, p: String) =
@@ -36,9 +36,22 @@ object Perms {
     fun hasConnect(ctx: Context) =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.S || granted(ctx, Manifest.permission.BLUETOOTH_CONNECT)
 
-    fun hasScan(ctx: Context) =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) granted(ctx, Manifest.permission.BLUETOOTH_SCAN)
-        else granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION)
+    fun hasLocation(ctx: Context) = granted(ctx, Manifest.permission.ACCESS_FINE_LOCATION)
+
+    fun hasScan(ctx: Context) = hasLocation(ctx) &&
+        (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || granted(ctx, Manifest.permission.BLUETOOTH_SCAN))
+
+    /** "Allow all the time": lets the listener keep hearing AirPods while the app is closed. */
+    fun hasBackgroundLocation(ctx: Context) =
+        Build.VERSION.SDK_INT < Build.VERSION_CODES.Q || granted(ctx, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+
+    /** The phone's Location switch. Bluetooth scans return nothing while it's off. */
+    fun locationOn(ctx: Context): Boolean = try {
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE) as android.location.LocationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) lm.isLocationEnabled
+        else lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) ||
+            lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+    } catch (_: Exception) { true }
 
     fun all(ctx: Context) = hasConnect(ctx) && hasScan(ctx)
 }

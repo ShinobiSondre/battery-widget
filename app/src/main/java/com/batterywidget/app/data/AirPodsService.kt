@@ -84,7 +84,8 @@ class AirPodsService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (!scanning) startScan()
+        if (intent?.getBooleanExtra(EXTRA_RESTART, false) == true) restartScan()
+        else if (!scanning) startScan()
         return START_STICKY
     }
 
@@ -213,6 +214,18 @@ class AirPodsService : Service() {
                 // widget tap or Bluetooth connection starts it instead.
                 Prefs.setListenerNote(ctx, "Waiting to start (open the app once)")
             }
+        }
+
+        private const val EXTRA_RESTART = "restart"
+
+        /** Starts scanning again, e.g. after a new permission was granted. */
+        fun restart(ctx: Context) {
+            if (!Prefs.alwaysListen(ctx) || !Perms.all(ctx)) return
+            try {
+                ContextCompat.startForegroundService(
+                    ctx, Intent(ctx, AirPodsService::class.java).putExtra(EXTRA_RESTART, true)
+                )
+            } catch (_: Exception) { }
         }
 
         fun stop(ctx: Context) = ctx.stopService(Intent(ctx, AirPodsService::class.java))

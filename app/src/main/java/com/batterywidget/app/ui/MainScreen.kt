@@ -1,6 +1,10 @@
 package com.batterywidget.app.ui
 
+import android.Manifest
 import android.appwidget.AppWidgetManager
+import android.content.Intent
+import android.os.Build
+import android.provider.Settings
 import android.content.ComponentName
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -78,13 +82,16 @@ fun MainScreen() {
     var style by remember { mutableStateOf(Prefs.style(ctx)) }
     var items by remember { mutableStateOf(Devices.read(ctx)) }
     var hasPerms by remember { mutableStateOf(Perms.all(ctx)) }
+    var locationOn by remember { mutableStateOf(Perms.locationOn(ctx)) }
+    var bgLocation by remember { mutableStateOf(Perms.hasBackgroundLocation(ctx)) }
     var listen by remember { mutableStateOf(Prefs.alwaysListen(ctx)) }
     var status by remember { mutableStateOf(listenerStatus(ctx)) }
     var debug by remember { mutableStateOf(debugLine(ctx)) }
 
     val askPerms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         hasPerms = Perms.all(ctx)
-        AirPods.sync(ctx)
+        bgLocation = Perms.hasBackgroundLocation(ctx)
+        AirPodsService.restart(ctx)
         items = Devices.read(ctx)
         WidgetUpdater.updateAll(ctx)
     }
@@ -95,6 +102,13 @@ fun MainScreen() {
             items = Devices.read(ctx)
             status = listenerStatus(ctx)
             debug = debugLine(ctx)
+            val nowPerms = Perms.all(ctx)
+            if (nowPerms && !hasPerms) AirPodsService.restart(ctx)
+            hasPerms = nowPerms
+            locationOn = Perms.locationOn(ctx)
+            val nowBg = Perms.hasBackgroundLocation(ctx)
+            if (nowBg && !bgLocation) AirPodsService.restart(ctx)
+            bgLocation = nowBg
             delay(3000)
         }
     }
@@ -168,10 +182,33 @@ fun MainScreen() {
             Section {
                 Text("Show AirPods and Bluetooth devices", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
                 Text(
-                    "Allow \"Nearby devices\" so the widget can read the battery of your AirPods, watch and other Bluetooth gear.",
+                    "Allow Location and Nearby devices. Android only passes on AirPods battery signals to apps with location access " +
+                        "(MaterialPods asks for the same). The app never reads or saves where you are.",
                     color = Muted, fontSize = 14.sp
                 )
                 Button(onClick = { askPerms.launch(Perms.needed) }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Allow") }
+            }
+        } else if (!locationOn) {
+            Section {
+                Text("Turn on Location", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("Android blocks Bluetooth scans while the phone's Location switch is off.", color = Muted, fontSize = 14.sp)
+                Button(
+                    onClick = { ctx.startActivity(Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS)) },
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("Open Location settings") }
+            }
+        } else if (!bgLocation) {
+            Section {
+                Text("Keep it updated in the background", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("Choose \"Allow all the time\" so AirPods battery keeps updating while the app is closed.", color = Muted, fontSize = 14.sp)
+                Button(
+                    onClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                            askPerms.launch(arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("Allow all the time") }
             }
         }
 
@@ -250,6 +287,7 @@ private fun debugLine(ctx: android.content.Context): String {
 private fun listenerStatus(ctx: android.content.Context): String {
     if (!Prefs.alwaysListen(ctx)) return "Off"
     if (!Perms.all(ctx)) return "Tap Allow above first"
+    if (!Perms.locationOn(ctx)) return "Turn on Location above first"
     val heard = Prefs.lastHeard(ctx)
     val note = Prefs.listenerNote(ctx)
     val on = if (AirPodsService.running) note.ifBlank { "Listening" } else "Not running"
