@@ -86,6 +86,10 @@ object Prefs {
     fun connectBlocked(c: Context) = sp(c).getBoolean("connect_blocked", false)
     fun setConnectBlocked(c: Context, v: Boolean) = sp(c).edit().putBoolean("connect_blocked", v).apply()
 
+    /** What auto-connect did last, shown in the app. */
+    fun autoNote(c: Context) = sp(c).getString("auto_note", "") ?: ""
+    fun setAutoNote(c: Context, v: String) = sp(c).edit().putString("auto_note", v).apply()
+
     fun lastWidgetDraw(c: Context) = sp(c).getLong("last_draw", 0L)
     fun setLastWidgetDraw(c: Context, t: Long) = sp(c).edit().putLong("last_draw", t).apply()
 }

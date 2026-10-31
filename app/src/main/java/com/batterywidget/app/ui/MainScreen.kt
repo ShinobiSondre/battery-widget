@@ -111,6 +111,7 @@ fun MainScreen() {
     var canConnect by remember { mutableStateOf(PodsConnector.canOffer(ctx)) }
     var autoConnect by remember { mutableStateOf(Prefs.autoConnect(ctx)) }
     var connectBlocked by remember { mutableStateOf(Prefs.connectBlocked(ctx)) }
+    var autoNote by remember { mutableStateOf(Prefs.autoNote(ctx)) }
     var listen by remember { mutableStateOf(Prefs.alwaysListen(ctx)) }
     var status by remember { mutableStateOf(listenerStatus(ctx)) }
     var debug by remember { mutableStateOf(debugLine(ctx)) }
@@ -155,6 +156,7 @@ fun MainScreen() {
             unrestricted = batteryUnrestricted(ctx)
             canConnect = PodsConnector.canOffer(ctx)
             connectBlocked = Prefs.connectBlocked(ctx)
+            autoNote = Prefs.autoNote(ctx)
             delay(3000)
         }
     }
@@ -360,6 +362,9 @@ fun MainScreen() {
                     )
                 }
                 Switch(checked = autoConnect, onCheckedChange = { autoConnect = it; Prefs.setAutoConnect(ctx, it) })
+            }
+            if (autoConnect && autoNote.isNotBlank()) {
+                Text("Last auto-connect: $autoNote", color = Muted.copy(alpha = 0.7f), fontSize = 11.sp)
             }
             if (items.size == 1) {
                 Text(

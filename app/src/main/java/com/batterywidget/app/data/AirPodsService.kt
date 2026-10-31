@@ -65,6 +65,7 @@ class AirPodsService : Service() {
                         val plugChange = lastLevel != -2 && plugged != lastPlugged
                         lastLevel = level; lastPlugged = plugged
                         WidgetUpdater.updateAllThrottled(ctx, force = plugChange)
+                        updateNotice()
                     }
                 }
                 Intent.ACTION_POWER_CONNECTED, Intent.ACTION_POWER_DISCONNECTED ->
@@ -72,6 +73,7 @@ class AirPodsService : Service() {
                 BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
                     AirPods.onConnectionChange(ctx, intent)
                     WidgetUpdater.updateAllThrottled(ctx, force = true)
+                    handler.postDelayed({ updateNotice() }, 2_500)
                     // Battery levels arrive a few seconds after connecting.
                     handler.postDelayed({ WidgetUpdater.updateAllThrottled(ctx, force = true) }, 2_500)
                     handler.postDelayed({ WidgetUpdater.updateAllThrottled(ctx, force = true) }, 7_000)
@@ -198,16 +200,20 @@ class AirPodsService : Service() {
     private fun notification(): Notification {
         val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL) == null) {
+            nm.deleteNotificationChannel("airpods") // the old, hidden-on-lock-screen one
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL, "AirPods listener", NotificationManager.IMPORTANCE_MIN).apply {
-                    description = "Keeps the widget's AirPods battery up to date"
+                NotificationChannel(CHANNEL, "Batteries", NotificationManager.IMPORTANCE_LOW).apply {
+                    description = "Your batteries, also shown on the lock screen"
                     setShowBadge(false)
+                    lockscreenVisibility = Notification.VISIBILITY_PUBLIC
                 }
             )
         }
-        val pods = AirPods.current(this)
-        val text = pods?.toItems()?.joinToString("  ·  ") { "${it.name} ${it.level}%" }
-            ?: "Listening for AirPods"
+        // Every battery in one line, so it's useful on the lock screen and cover screen too.
+        val items = Devices.read(this)
+        val text = items.joinToString("  ·  ") { i ->
+            (if (i.level < 0) "${i.name} –" else "${i.name} ${i.level}%") + (if (i.charging) " ⚡" else "")
+        }
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
@@ -218,13 +224,15 @@ class AirPodsService : Service() {
             .setOngoing(true)
             .setSilent(true)
             .setShowWhen(false)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setOnlyAlertOnce(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
     }
 
     companion object {
-        private const val CHANNEL = "airpods"
+        private const val CHANNEL = "batteries"
         private const val NOTE_ID = 42
         const val BATTERY_LEVEL_CHANGED = "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED"
         const val EXTRA_BATTERY_LEVEL = "android.bluetooth.device.extra.BATTERY_LEVEL"
