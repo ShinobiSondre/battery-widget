@@ -178,9 +178,9 @@ object WidgetUpdater {
 
             // Keep the pictures small enough for the launcher to accept.
             val scale = min(density, 800f / max(wDp, hDp))
-            val bmp = Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale, highlight = highlight, reserveCorner = offerConnect)
+            val bmp = Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale, highlight = highlight)
             val glow = if (charging) {
-                Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale, Renderer.Layer.GLOW, reserveCorner = offerConnect)
+                Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale, Renderer.Layer.GLOW)
             } else null
 
             val views = RemoteViews(ctx.packageName, R.layout.widget_battery)
