@@ -100,11 +100,19 @@ object WidgetUpdater {
         )
     }
 
-    /** Redraws at most every 15 seconds, for the frequent AirPods readings. */
+    @Volatile private var trailing = false
+
+    /**
+     * Redraws now, or, if it just redrew, once more 2 seconds later, so a change is never lost
+     * and the widget isn't redrawn many times a second.
+     */
     fun updateAllThrottled(ctx: Context, force: Boolean = false) {
-        val now = System.currentTimeMillis()
-        if (!force && now - Prefs.lastWidgetDraw(ctx) < 15_000) return
-        updateAll(ctx)
+        val app = ctx.applicationContext
+        val since = System.currentTimeMillis() - Prefs.lastWidgetDraw(app)
+        if (force || since >= 2_000) { updateAll(app); return }
+        if (trailing) return
+        trailing = true
+        main.postDelayed({ trailing = false; updateAll(app) }, (2_000 - since).coerceAtLeast(100))
     }
 
     /**

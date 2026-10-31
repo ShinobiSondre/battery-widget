@@ -153,9 +153,12 @@ object AirPods {
             val filter = ScanFilter.Builder()
                 .setManufacturerData(APPLE, byteArrayOf(0x07, 0x19), byteArrayOf(-1, -1))
                 .build()
+            // Fastest scanning; the narrow filter runs on the Bluetooth chip, so the phone
+            // itself stays asleep until AirPods actually speak.
             val settings = ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
                 .build()
             val pi = systemScanIntent(ctx)
             scanner.stopScan(pi)
@@ -211,7 +214,8 @@ object AirPods {
         if (!changed && !stale) return false
         val wasHidden = old == null || reading.at - old.at > FRESH_MS
         Prefs.savePods(ctx, reading)
-        if (changed || wasHidden) WidgetUpdater.updateAllThrottled(ctx, force = wasHidden)
+        // AirPods change in 10% steps, so every change is worth showing straight away.
+        if (changed || wasHidden) WidgetUpdater.updateAllThrottled(ctx, force = true)
         return changed || wasHidden
     }
 }
@@ -222,7 +226,10 @@ class AirPodsScanReceiver : BroadcastReceiver() {
         val results = IntentCompat.getParcelableArrayListExtra(
             intent, BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT, ScanResult::class.java
         ) ?: return
+        // Stay awake a moment so a delayed redraw can finish.
+        val pending = goAsync()
         AirPods.onResults(ctx, results)
         AirPodsService.ensure(ctx) // bring the listener back if it was closed
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ pending.finish() }, 2500)
     }
 }
