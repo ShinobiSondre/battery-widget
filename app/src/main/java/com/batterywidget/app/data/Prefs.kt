@@ -92,6 +92,10 @@ object Prefs {
     fun autoNote(c: Context) = sp(c).getString("auto_note", "") ?: ""
     fun setAutoNote(c: Context, v: String) = sp(c).edit().putString("auto_note", v).apply()
 
+    /** Status of the direct AirPods channel, shown in the app. */
+    fun aapNote(c: Context) = sp(c).getString("aap_note", "") ?: ""
+    fun setAapNote(c: Context, v: String) = sp(c).edit().putString("aap_note", v).apply()
+
     fun lastWidgetDraw(c: Context) = sp(c).getLong("last_draw", 0L)
     fun setLastWidgetDraw(c: Context, t: Long) = sp(c).edit().putLong("last_draw", t).apply()
 }

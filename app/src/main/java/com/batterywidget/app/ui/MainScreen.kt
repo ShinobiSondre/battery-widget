@@ -409,7 +409,7 @@ private fun debugLine(ctx: android.content.Context): String {
     val at = Prefs.debugAt(ctx)
     if (at == 0L) return if (AirPodsService.running) "Debug: no Apple Bluetooth signals received yet" else ""
     val secs = (System.currentTimeMillis() - at) / 1000
-    return "Android: ${Devices.podsSystemBattery(ctx)}\nDebug (${secs}s ago): ${Prefs.debug(ctx)}"
+    return "Direct: ${Prefs.aapNote(ctx).ifBlank { "not started" }}\nAndroid: ${Devices.podsSystemBattery(ctx)}\nDebug (${secs}s ago): ${Prefs.debug(ctx)}"
 }
 
 private fun listenerStatus(ctx: android.content.Context): String {

@@ -55,6 +55,8 @@ object AirPods {
         val p = Prefs.loadPods(ctx) ?: return null
         // Only fresh broadcasts. Newer AirPods (like Pro 3) stop broadcasting their battery while
         // they're connected; then the battery Android gets from the AirPods is shown instead.
+        // While the direct channel is open, its reading is always current.
+        if (AapClient.live) return p
         return if (System.currentTimeMillis() - p.at < FRESH_MS) p else null
     }
 
@@ -70,7 +72,7 @@ object AirPods {
         if (!name.contains("pods", ignoreCase = true)) return
         val connected = intent.action == android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED
         Prefs.setPodsLinked(ctx, connected)
-        if (connected) Prefs.setPodsAddress(ctx, d.address)
+        if (connected) Prefs.setPodsAddress(ctx, d.address) else AapClient.stop()
     }
 
     /**
@@ -145,6 +147,7 @@ object AirPods {
     /** Makes sure the always-on listener is running (when it's switched on). */
     fun sync(ctx: Context) {
         AirPodsService.ensure(ctx)
+        if (PodsConnector.connected(ctx)) AapClient.start(ctx)
         if (Prefs.alwaysListen(ctx)) startSystemScan(ctx) else stopSystemScan(ctx)
     }
 
