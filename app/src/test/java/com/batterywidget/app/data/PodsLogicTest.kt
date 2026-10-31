@@ -349,7 +349,7 @@ class SignalSmootherTest {
     @Test fun `median ignores a single spike and unknown readings`() {
         val s = SignalSmoother()
         s.add(0, -80); s.add(500, -45); s.add(1_000, 127); s.add(1_500, -78); s.add(2_000, -79)
-        assertEquals(-79, s.median(2_000))
+        assertEquals(-78, s.median(2_000)) // -80 -79 -78 -45: the -45 spike doesn't win
     }
 
     @Test fun `needs a few readings, and forgets old ones`() {
