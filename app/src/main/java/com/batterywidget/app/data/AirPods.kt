@@ -78,7 +78,10 @@ object AirPods {
     private fun parseStatus(d: ByteArray): PodsReading? {
         // 0x07 = "proximity pairing" status message. Older and newer AirPods differ in length,
         // but the battery part sits in the same place.
-        if (d.size < 9 || d[0] != 0x07.toByte()) return null
+        // Only the plain status message counts: it has 0x01 right after the length, and is long
+        // enough to hold the battery bytes. AirPods also send short 0x07 messages (for example
+        // "07 09 03 ..." when connecting) whose bytes would read as nonsense levels.
+        if (d.size < 10 || d[0] != 0x07.toByte() || d[2] != 0x01.toByte() || (d[1].toInt() and 0xFF) < 8) return null
         // Digit i of the message written out in hex: even = high half of a byte, odd = low half.
         fun nib(i: Int): Int {
             val b = d[i / 2].toInt() and 0xFF
@@ -145,7 +148,7 @@ object AirPods {
             })
         }
         val best = results
-            .filter { it.rssi >= NEAR_RSSI }
+            .filter { it.rssi >= NEAR_RSSI && it.rssi < 20 } // 127 means "strength unknown"
             .mapNotNull { r -> r.scanRecord?.getManufacturerSpecificData(APPLE)?.let { parse(it)?.let { p -> r to p } } }
             .maxByOrNull { it.first.rssi } ?: return false
         val (result, reading) = best

@@ -58,6 +58,18 @@ object Prefs {
     fun setDebug(c: Context, v: String) =
         sp(c).edit().putString("debug", v).putLong("debug_at", System.currentTimeMillis()).apply()
 
+    /** Device names shown last time, to spot ones that just connected. Null before the first draw. */
+    fun lastNames(c: Context): Set<String>? = sp(c).getStringSet("last_names", null)?.toSet()
+    fun setLastNames(c: Context, v: Set<String>) = sp(c).edit().putStringSet("last_names", v).apply()
+
+    // Per widget: which of its two pictures is showing, what was drawn, and whether it's set up.
+    fun widgetShown(c: Context, id: Int) = sp(c).getInt("w_shown_$id", 0)
+    fun setWidgetShown(c: Context, id: Int, v: Int) = sp(c).edit().putInt("w_shown_$id", v).apply()
+    fun widgetSig(c: Context, id: Int) = sp(c).getString("w_sig_$id", "") ?: ""
+    fun setWidgetSig(c: Context, id: Int, v: String) = sp(c).edit().putString("w_sig_$id", v).apply()
+    fun widgetDrawn(c: Context, id: Int) = sp(c).getBoolean("w_drawn_$id", false)
+    fun setWidgetDrawn(c: Context, id: Int) = sp(c).edit().putBoolean("w_drawn_$id", true).apply()
+
     fun lastWidgetDraw(c: Context) = sp(c).getLong("last_draw", 0L)
     fun setLastWidgetDraw(c: Context, t: Long) = sp(c).edit().putLong("last_draw", t).apply()
 }

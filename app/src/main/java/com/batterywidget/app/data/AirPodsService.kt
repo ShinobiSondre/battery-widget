@@ -36,6 +36,8 @@ class AirPodsService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var scanning = false
+    private var lastLevel = -2
+    private var lastPlugged = false
 
     private val callback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) = heard(listOf(result))
@@ -55,12 +57,29 @@ class AirPodsService : Service() {
                     if (on) startScan() else { scanning = false }
                 }
                 Intent.ACTION_SCREEN_ON -> restartScan() // some phones pause scans while the screen is off
+                // Phone battery and charger: redraw right away when something visible changes.
+                Intent.ACTION_BATTERY_CHANGED -> {
+                    val level = intent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
+                    val plugged = intent.getIntExtra(android.os.BatteryManager.EXTRA_PLUGGED, 0) != 0
+                    if (level != lastLevel || plugged != lastPlugged) {
+                        val plugChange = lastLevel != -2 && plugged != lastPlugged
+                        lastLevel = level; lastPlugged = plugged
+                        WidgetUpdater.updateAllThrottled(ctx, force = plugChange)
+                    }
+                }
+                Intent.ACTION_POWER_CONNECTED, Intent.ACTION_POWER_DISCONNECTED ->
+                    WidgetUpdater.updateAllThrottled(ctx, force = true)
+                BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                    WidgetUpdater.updateAllThrottled(ctx, force = true)
+                    // Battery levels arrive a few seconds after connecting.
+                    handler.postDelayed({ WidgetUpdater.updateAllThrottled(ctx, force = true) }, 6_000)
+                }
                 BATTERY_LEVEL_CHANGED -> {
                     val d = IntentCompat.getParcelableExtra(intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
                     val level = intent.getIntExtra(EXTRA_BATTERY_LEVEL, -1)
                     if (d != null && level >= 0) {
                         Prefs.saveDeviceBattery(ctx, d.address, level)
-                        WidgetUpdater.updateAllThrottled(ctx)
+                        WidgetUpdater.updateAllThrottled(ctx, force = true)
                     }
                 }
             }
@@ -77,6 +96,11 @@ class AirPodsService : Service() {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(BATTERY_LEVEL_CHANGED)
+            addAction(Intent.ACTION_BATTERY_CHANGED)
+            addAction(Intent.ACTION_POWER_CONNECTED)
+            addAction(Intent.ACTION_POWER_DISCONNECTED)
+            addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
+            addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
         }
         ContextCompat.registerReceiver(this, events, f, ContextCompat.RECEIVER_NOT_EXPORTED)
         startScan()
@@ -109,7 +133,7 @@ class AirPodsService : Service() {
     }
 
     private fun startScan() {
-        if (!Perms.hasScan(this)) { Prefs.setListenerNote(this, "Needs the Nearby devices permission"); return }
+        if (!Perms.hasScan(this)) { Prefs.setListenerNote(this, "Needs Location and Nearby devices permission"); return }
         val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
         val scanner = if (adapter != null && adapter.isEnabled) adapter.bluetoothLeScanner else null
         if (scanner == null) { Prefs.setListenerNote(this, "Bluetooth is off"); return }
@@ -206,7 +230,9 @@ class AirPodsService : Service() {
 
         /** Starts listening if the user wants it and Android allows it right now. */
         fun ensure(ctx: Context) {
-            if (!Prefs.alwaysListen(ctx) || !Perms.all(ctx)) return
+            // Runs as soon as Bluetooth access is allowed, so the widget updates live; AirPods
+            // scanning inside it starts once location is allowed too.
+            if (!Prefs.alwaysListen(ctx) || !Perms.hasConnect(ctx)) return
             try {
                 ContextCompat.startForegroundService(ctx, Intent(ctx, AirPodsService::class.java))
             } catch (e: Exception) {
@@ -220,7 +246,7 @@ class AirPodsService : Service() {
 
         /** Starts scanning again, e.g. after a new permission was granted. */
         fun restart(ctx: Context) {
-            if (!Prefs.alwaysListen(ctx) || !Perms.all(ctx)) return
+            if (!Prefs.alwaysListen(ctx) || !Perms.hasConnect(ctx)) return
             try {
                 ContextCompat.startForegroundService(
                     ctx, Intent(ctx, AirPodsService::class.java).putExtra(EXTRA_RESTART, true)

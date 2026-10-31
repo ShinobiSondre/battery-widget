@@ -11,7 +11,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.core.content.FileProvider
 import com.batterywidget.app.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -107,9 +106,9 @@ object Updater {
         return null
     }
 
-    private data class Release(val build: Int, val url: String, val size: Long, val notes: String)
+    internal data class Release(val build: Int, val url: String, val size: Long, val notes: String)
 
-    private suspend fun latestRelease(): Release? = withContext(Dispatchers.IO) {
+    internal suspend fun latestRelease(): Release? = withContext(Dispatchers.IO) {
         val c = URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection
         try {
             c.connectTimeout = 5000; c.readTimeout = 6000
@@ -197,25 +196,19 @@ object Updater {
         }
     }
 
-    private fun canInstall(ctx: Context) =
+    internal fun canInstall(ctx: Context) =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ctx.packageManager.canRequestPackageInstalls()
 
     private fun install(ctx: Context, file: File) {
         apk = file
         if (!canInstall(ctx)) { stage = UpdateStage.NeedsPermission; return }
         stage = UpdateStage.Installing
-        try {
-            val uri = FileProvider.getUriForFile(ctx, ctx.packageName + ".fileprovider", file)
-            ctx.startActivity(Intent(Intent.ACTION_VIEW).apply {
-                setDataAndType(uri, "application/vnd.android.package-archive")
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            })
-        } catch (_: Exception) {
-            fail("The update couldn't start.")
-        }
+        // Installs through Android's package installer. After the first update this way,
+        // Android 12+ lets later updates install by themselves, without a tap.
+        if (!Installer.install(ctx, file)) fail("The update couldn't start.")
     }
 
-    private fun fail(msg: String) { error = msg; stage = UpdateStage.Failed }
+    internal fun fail(msg: String) { error = msg; stage = UpdateStage.Failed }
 
     /** Opens Android's "install unknown apps" switch for Battery Widget. */
     fun allowInstalls(ctx: Context) {

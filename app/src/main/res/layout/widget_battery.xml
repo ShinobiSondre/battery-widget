@@ -1,14 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- Two pictures that crossfade on every change, plus a glow layer that slowly "breathes"
+     while something is charging. The launcher runs these animations itself. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <ImageView
-        android:id="@+id/widget_image"
+    <ViewFlipper
+        android:id="@+id/widget_content"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:contentDescription="@string/widget_name"
-        android:scaleType="fitCenter"
-        android:src="@drawable/widget_placeholder" />
+        android:inAnimation="@anim/widget_in"
+        android:outAnimation="@anim/widget_out">
+
+        <ImageView
+            android:id="@+id/widget_img0"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/widget_name"
+            android:scaleType="fitCenter"
+            android:src="@drawable/widget_placeholder" />
+
+        <ImageView
+            android:id="@+id/widget_img1"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:contentDescription="@string/widget_name"
+            android:scaleType="fitCenter" />
+    </ViewFlipper>
+
+    <ViewFlipper
+        android:id="@+id/widget_glow"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:autoStart="true"
+        android:flipInterval="1300"
+        android:inAnimation="@anim/glow_in"
+        android:outAnimation="@anim/glow_out"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/widget_glow_on"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow_off"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no" />
+    </ViewFlipper>
 </FrameLayout>

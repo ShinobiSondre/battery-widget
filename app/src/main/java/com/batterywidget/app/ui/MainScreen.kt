@@ -4,6 +4,28 @@ import android.Manifest
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Build
+import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.foundation.layout.Box
+import androidx.compose.runtime.key
+import androidx.compose.ui.graphics.graphicsLayer
 import android.provider.Settings
 import android.content.ComponentName
 import android.widget.Toast
@@ -87,8 +109,23 @@ fun MainScreen() {
     var listen by remember { mutableStateOf(Prefs.alwaysListen(ctx)) }
     var status by remember { mutableStateOf(listenerStatus(ctx)) }
     var debug by remember { mutableStateOf(debugLine(ctx)) }
+    var askedOnce by remember { mutableStateOf(false) }
+    // Devices that just connected get a short spotlight, like on the widget.
+    var joined by remember { mutableStateOf(emptySet<String>()) }
+    var lastNames by remember { mutableStateOf(items.map { it.name }.toSet()) }
+    LaunchedEffect(items) {
+        val names = items.map { it.name }.toSet()
+        val fresh = names - lastNames
+        lastNames = names
+        if (fresh.isNotEmpty()) {
+            joined = fresh
+            delay(1800)
+            joined = emptySet()
+        }
+    }
 
     val askPerms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
+        askedOnce = true
         hasPerms = Perms.all(ctx)
         bgLocation = Perms.hasBackgroundLocation(ctx)
         AirPodsService.restart(ctx)
@@ -134,10 +171,28 @@ fun MainScreen() {
             val wDp = (maxWidth.value - 32f).coerceAtMost(340f)
             val hDp = 170f
             val density = LocalDensity.current.density
-            val preview = remember(items, style, opacity, wDp) {
-                Renderer.render(items, style, opacity, wDp, hDp, density).asImageBitmap()
+            val preview = remember(items, style, opacity, wDp, joined) {
+                Renderer.render(items, style, opacity, wDp, hDp, density, highlight = joined).asImageBitmap()
             }
-            Image(preview, contentDescription = "Widget preview", modifier = Modifier.width(wDp.dp).height(hDp.dp))
+            val glow = remember(items, style, opacity, wDp) {
+                if (Renderer.anyCharging(items))
+                    Renderer.render(items, style, opacity, wDp, hDp, density, Renderer.Layer.GLOW).asImageBitmap()
+                else null
+            }
+            val breathe = rememberInfiniteTransition(label = "charging")
+            val glowAlpha by breathe.animateFloat(
+                initialValue = 0f, targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(1300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+                label = "glow"
+            )
+            Box(Modifier.width(wDp.dp).height(hDp.dp)) {
+                Crossfade(targetState = preview, animationSpec = tween(420), label = "preview") { img ->
+                    Image(img, contentDescription = "Widget preview", modifier = Modifier.fillMaxSize())
+                }
+                if (glow != null) {
+                    Image(glow, contentDescription = null, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = glowAlpha })
+                }
+            }
         }
 
         Section {
@@ -186,7 +241,21 @@ fun MainScreen() {
                         "(MaterialPods asks for the same). The app never reads or saves where you are.",
                     color = Muted, fontSize = 14.sp
                 )
-                Button(onClick = { askPerms.launch(Perms.needed) }, modifier = Modifier.fillMaxWidth().height(48.dp)) { Text("Allow") }
+                Button(
+                    onClick = {
+                        // After a "Don't allow", Android stops showing the pop-up, so open the
+                        // app's settings page instead.
+                        if (askedOnce) {
+                            ctx.startActivity(
+                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}"))
+                            )
+                        } else askPerms.launch(Perms.needed)
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text(if (askedOnce) "Open permission settings" else "Allow") }
+                if (askedOnce) {
+                    Text("Tap Permissions → Location → Allow all the time, with precise location on.", color = Muted, fontSize = 13.sp)
+                }
             }
         } else if (!locationOn) {
             Section {
@@ -232,15 +301,9 @@ fun MainScreen() {
 
         Section {
             Text("Devices", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
-            items.forEach { item ->
-                Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
-                    DeviceIcon(item.icon)
-                    Spacer(Modifier.width(12.dp))
-                    Text(item.name, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
-                    Text(
-                        (if (item.level < 0) "–" else "${item.level}%") + (if (item.charging) "  ⚡" else ""),
-                        color = Color(Renderer.levelColor(item)), fontSize = 15.sp, fontWeight = FontWeight.Bold
-                    )
+            Column(Modifier.animateContentSize(tween(350))) {
+                items.forEach { item ->
+                    key(item.name) { DeviceRow(item, spotlight = item.name in joined) }
                 }
             }
             if (items.size == 1) {
@@ -297,6 +360,35 @@ private fun listenerStatus(ctx: android.content.Context): String {
         "$on · AirPods last heard $ago ago (signal ${Prefs.lastRssi(ctx)})"
     } else if (AirPodsService.running) "$on · not heard yet. Take the AirPods out or open the case lid near the phone."
     else "$on · ${note.ifBlank { "open the app to start it" }}"
+}
+
+/** One device in the list: slides in when it connects, its number counts up or down smoothly,
+ *  and a small bolt pulses while it charges. */
+@Composable
+private fun DeviceRow(item: com.batterywidget.app.data.Item, spotlight: Boolean) {
+    val shown = remember { MutableTransitionState(false).apply { targetState = true } }
+    val level by animateIntAsState(item.level.coerceAtLeast(0), tween(600), label = "level")
+    val color by animateColorAsState(Color(Renderer.levelColor(item)), tween(400), label = "color")
+    val bg by animateColorAsState(if (spotlight) Color.White.copy(alpha = 0.10f) else Color.Transparent, tween(500), label = "spot")
+    val pulse = rememberInfiniteTransition(label = "bolt")
+    val boltAlpha by pulse.animateFloat(0.35f, 1f, infiniteRepeatable(tween(900, easing = FastOutSlowInEasing), RepeatMode.Reverse), label = "a")
+    AnimatedVisibility(
+        visibleState = shown,
+        enter = fadeIn(tween(400)) + expandVertically(tween(400)) + slideInHorizontally(tween(400)) { it / 6 }
+    ) {
+        Row(
+            Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(10.dp)).background(bg).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            DeviceIcon(item.icon)
+            Spacer(Modifier.width(12.dp))
+            Text(item.name, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
+            Text(if (item.level < 0) "–" else "$level%", color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            AnimatedVisibility(item.charging, enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
+                Text("  ⚡", color = Color(0xFF4ADE80), fontSize = 15.sp, modifier = Modifier.graphicsLayer { alpha = boltAlpha })
+            }
+        }
+    }
 }
 
 @Composable

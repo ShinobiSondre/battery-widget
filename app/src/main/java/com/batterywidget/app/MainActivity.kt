@@ -11,7 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import com.batterywidget.app.data.AirPods
 import com.batterywidget.app.ui.MainScreen
+import com.batterywidget.app.update.Installer
 import com.batterywidget.app.update.UpdateOverlay
+import com.batterywidget.app.update.UpdateWorker
 import com.batterywidget.app.update.Updater
 import com.batterywidget.app.widget.WidgetUpdater
 
@@ -20,6 +22,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         WidgetUpdater.schedule(this)
         Updater.start(this)
+        UpdateWorker.schedule(this)
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
@@ -39,12 +42,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        Installer.appVisible = true
         Updater.onResume(this)
         AirPods.sync(this) // start the always-on AirPods listener
     }
 
     override fun onPause() {
         super.onPause()
+        Installer.appVisible = false
         WidgetUpdater.updateAll(this)
     }
 }
