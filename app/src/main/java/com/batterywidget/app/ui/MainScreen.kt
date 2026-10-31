@@ -178,7 +178,7 @@ fun MainScreen() {
                 Renderer.render(items, style, opacity, wDp, hDp, density, highlight = joined).asImageBitmap()
             }
             val glow = remember(items, style, opacity, wDp) {
-                if (Renderer.anyCharging(items))
+                if (Renderer.anyGlow(items))
                     Renderer.render(items, style, opacity, wDp, hDp, density, Renderer.Layer.GLOW).asImageBitmap()
                 else null
             }
@@ -414,9 +414,14 @@ private fun DeviceRow(item: com.batterywidget.app.data.Item, spotlight: Boolean)
             DeviceIcon(item.icon)
             Spacer(Modifier.width(12.dp))
             Text(item.name, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
-            Text(if (item.level < 0) "–" else "$level%", color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            // Charging, low and nearing-low numbers pulse, in the same colour as on the widget.
+            val pulsing = Renderer.glowColor(item) != null
+            Text(
+                if (item.level < 0) "–" else "$level%", color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                modifier = Modifier.graphicsLayer { alpha = if (pulsing) 0.55f + 0.45f * boltAlpha else 1f }
+            )
             AnimatedVisibility(item.charging, enter = fadeIn() + scaleIn(), exit = fadeOut() + scaleOut()) {
-                Text("  ⚡", color = Color(0xFF4ADE80), fontSize = 15.sp, modifier = Modifier.graphicsLayer { alpha = boltAlpha })
+                Text("  ⚡", color = Color(0xFFFB923C), fontSize = 15.sp, modifier = Modifier.graphicsLayer { alpha = boltAlpha })
             }
         }
     }

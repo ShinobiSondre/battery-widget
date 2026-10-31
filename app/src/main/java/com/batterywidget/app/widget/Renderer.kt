@@ -18,13 +18,14 @@ import kotlin.math.min
  * Draws the whole widget as one picture. Doing it this way (instead of an Android layout) lets
  * the rings, bars and icons look exactly the same in every launcher, at any size or transparency.
  *
- * Besides the normal picture it can draw a GLOW layer: only a soft green halo around whatever
- * is charging. The widget fades that layer in and out to make charging items "breathe".
+ * Besides the normal picture it can draw a GLOW layer: a soft halo around anything charging
+ * (orange), low (red) or nearing low (orange). The widget fades it in and out so they "breathe".
  */
 object Renderer {
     private const val GREEN = 0xFF4ADE80.toInt()
     private const val AMBER = 0xFFFBBF24.toInt()
     private const val RED = 0xFFF87171.toInt()
+    private const val ORANGE = 0xFFFB923C.toInt()
     private const val GRAY = 0xFF9CA3AF.toInt()
     private const val WHITE = Color.WHITE
     private const val SOFT = 0xFFE5E7EB.toInt()
@@ -34,7 +35,7 @@ object Renderer {
 
     fun levelColor(i: Item) = when {
         i.level < 0 -> GRAY
-        i.charging -> GREEN
+        i.charging -> ORANGE
         i.level <= 20 -> RED
         i.level <= 50 -> AMBER
         else -> GREEN
@@ -79,7 +80,18 @@ object Renderer {
         return bmp
     }
 
-    fun anyCharging(items: List<Item>) = items.any { it.charging }
+    /**
+     * The colour an item pulses in, or null when it shouldn't pulse:
+     * orange while charging, red when low (20% or less), orange when nearing low (35% or less).
+     */
+    fun glowColor(i: Item): Int? = when {
+        i.charging -> ORANGE
+        i.level in 0..20 -> RED
+        i.level in 21..35 -> ORANGE
+        else -> null
+    }
+
+    fun anyGlow(items: List<Item>) = items.any { glowColor(it) != null }
 
     private class Ctx(val c: Canvas, val d: Float, val shadow: Boolean, val glow: Boolean, val highlight: Set<String>) {
         fun text(sizePx: Float, bold: Boolean = false, color: Int = WHITE) = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -91,11 +103,11 @@ object Renderer {
         }
 
         /** Paint for the soft halo of the glow layer. */
-        fun halo(width: Float) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        fun halo(width: Float, tint: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
             strokeWidth = width
             strokeCap = Paint.Cap.ROUND
-            color = Color.argb(200, 74, 222, 128)
+            color = Color.argb(210, Color.red(tint), Color.green(tint), Color.blue(tint))
             maskFilter = BlurMaskFilter(6 * d, BlurMaskFilter.Blur.NORMAL)
         }
 
@@ -145,9 +157,9 @@ object Renderer {
             val r = diam / 2f - stroke / 2f
             val oval = RectF(cx - r, cy - r, cx + r, cy + r)
             if (x.glow) {
-                if (!it.charging) return@forEachIndexed
-                x.c.drawOval(oval, x.halo(stroke * 1.8f))
-                Icons.draw(x.c, it.icon, cx, cy, diam * 0.46f, GREEN)
+                val g = glowColor(it) ?: return@forEachIndexed
+                x.c.drawOval(oval, x.halo(stroke * 1.8f, g))
+                Icons.draw(x.c, it.icon, cx, cy, diam * 0.46f, g)
                 return@forEachIndexed
             }
             x.spotlight(RectF(cx - cw / 2f + 2 * x.d, top - 4 * x.d, cx + cw / 2f - 2 * x.d, top + blockH + 2 * x.d), it.name)
@@ -163,7 +175,7 @@ object Renderer {
             val tx = cx - (tw + boltW) / 2f
             val ty = top + diam + labelSize * 1.25f
             x.c.drawText(t, tx, ty, label)
-            if (it.charging) Icons.bolt(x.c, tx + tw + boltW / 2f, ty - labelSize * 0.35f, labelSize * 0.9f, GREEN)
+            if (it.charging) Icons.bolt(x.c, tx + tw + boltW / 2f, ty - labelSize * 0.35f, labelSize * 0.9f, ORANGE)
         }
     }
 
@@ -199,13 +211,13 @@ object Renderer {
             val r = barH / 2f
 
             if (x.glow) {
-                if (!it.charging) return@forEachIndexed
+                val g = glowColor(it) ?: return@forEachIndexed
                 if (hasBar && it.level > 0) {
                     val end = (barLeft + (barRight - barLeft) * it.level / 100f).coerceAtLeast(barLeft + barH)
-                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.6f))
+                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.6f, g))
                 }
-                Icons.draw(x.c, it.icon, iconX, cy, icon, GREEN)
-                Icons.bolt(x.c, right - boltW / 2f, cy, boltW * 1.15f, GREEN)
+                Icons.draw(x.c, it.icon, iconX, cy, icon, g)
+                if (it.charging) Icons.bolt(x.c, right - boltW / 2f, cy, boltW * 1.15f, g)
                 return@forEachIndexed
             }
 
@@ -225,7 +237,7 @@ object Renderer {
             val t = pct(it)
             val tw = num.measureText(t)
             x.c.drawText(t, right - boltW - tw, base, num)
-            if (it.charging) Icons.bolt(x.c, right - boltW / 2f, cy, boltW, GREEN)
+            if (it.charging) Icons.bolt(x.c, right - boltW / 2f, cy, boltW, ORANGE)
         }
     }
 
@@ -257,18 +269,19 @@ object Renderer {
         val icon = nameSize * 1.3f
 
         if (x.glow) {
-            if (low.charging) {
-                val g = x.text(numSize, bold = true, color = GREEN).apply {
+            val gc = glowColor(low)
+            if (gc != null) {
+                val g = x.text(numSize, bold = true, color = gc).apply {
                     clearShadowLayer(); maskFilter = BlurMaskFilter(8 * d, BlurMaskFilter.Blur.NORMAL)
                 }
                 x.c.drawText(t, a.left, numY, g)
-                Icons.bolt(x.c, a.left + num.measureText(t) + numSize * 0.25f, numY - numSize * 0.35f, numSize * 0.48f, GREEN)
+                if (low.charging) Icons.bolt(x.c, a.left + num.measureText(t) + numSize * 0.25f, numY - numSize * 0.35f, numSize * 0.48f, gc)
             }
         } else {
             x.spotlight(RectF(a.left - 6 * d, blockTop - 4 * d, a.right, blockTop + blockH + 4 * d), low.name)
             x.c.drawText("Lowest", a.left, lowestY, small)
             x.c.drawText(t, a.left, numY, num)
-            if (low.charging) Icons.bolt(x.c, a.left + num.measureText(t) + numSize * 0.25f, numY - numSize * 0.35f, numSize * 0.4f, GREEN)
+            if (low.charging) Icons.bolt(x.c, a.left + num.measureText(t) + numSize * 0.25f, numY - numSize * 0.35f, numSize * 0.4f, ORANGE)
             Icons.draw(x.c, low.icon, a.left + icon / 2f, nameY - nameSize * 0.35f, icon, levelColor(low))
             val label = TextUtils.ellipsize(low.name, name, a.width() - icon - 8 * d, TextUtils.TruncateAt.END).toString()
             x.c.drawText(label, a.left + icon + 8 * d, nameY, name)
@@ -286,9 +299,10 @@ object Renderer {
             if (cx + cw > a.right) break
             val chip = RectF(cx, cy, cx + cw, cy + chipH)
             if (x.glow) {
-                if (it.charging) {
-                    x.c.drawRoundRect(chip, chipH / 2f, chipH / 2f, x.halo(2.5f * d))
-                    Icons.draw(x.c, it.icon, cx + 10 * d + iw / 2f, cy + chipH / 2f, iw, GREEN)
+                val g = glowColor(it)
+                if (g != null) {
+                    x.c.drawRoundRect(chip, chipH / 2f, chipH / 2f, x.halo(2.5f * d, g))
+                    Icons.draw(x.c, it.icon, cx + 10 * d + iw / 2f, cy + chipH / 2f, iw, g)
                 }
             } else {
                 x.spotlight(RectF(chip.left - 3 * d, chip.top - 3 * d, chip.right + 3 * d, chip.bottom + 3 * d), it.name)

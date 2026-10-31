@@ -149,7 +149,7 @@ object WidgetUpdater {
         val style = Prefs.style(ctx)
         val opacity = Prefs.opacity(ctx)
         val density = ctx.resources.displayMetrics.density
-        val charging = Renderer.anyCharging(items)
+        val charging = Renderer.anyGlow(items)
         for (id in ids) {
             val o = mgr.getAppWidgetOptions(id)
             // Portrait size: the narrowest width and the tallest height.
