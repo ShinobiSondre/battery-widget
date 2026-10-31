@@ -16,7 +16,7 @@ import com.batterywidget.app.widget.WidgetUpdater
  * that; if this one doesn't, the widget button opens Bluetooth settings instead.
  */
 object PodsConnector {
-    private const val AUTO_GAP_MS = 15_000L
+    private const val AUTO_GAP_MS = 20_000L
 
     @Volatile private var headset: BluetoothProfile? = null
     @Volatile private var a2dp: BluetoothProfile? = null
@@ -65,14 +65,6 @@ object PodsConnector {
         if (viaProfiles) return true
         if (headset != null || a2dp != null) return false // the profiles know, and they say no
         return try { dev.javaClass.getMethod("isConnected").invoke(dev) as Boolean } catch (_: Exception) { Prefs.podsLinked(ctx) }
-    }
-
-    /** True while Android is in the middle of connecting the AirPods. */
-    private fun connecting(ctx: Context): Boolean {
-        val dev = pairedPods(ctx) ?: return false
-        return try {
-            listOfNotNull(headset, a2dp).any { it.getConnectionState(dev) == BluetoothProfile.STATE_CONNECTING }
-        } catch (_: SecurityException) { false }
     }
 
     private fun note(ctx: Context, msg: String) {
@@ -125,24 +117,14 @@ object PodsConnector {
             // The app was asleep: open Android's headset service first, then try.
             prepare(app)
             lastAuto = now
-            whenReady(app) { lastAuto = 0L; autoConnect(app, rssi) }
+            main.postDelayed({ lastAuto = 0L; autoConnect(app, rssi) }, 700)
             return
         }
         if (connected(app)) return
-        // Never interrupt a connection that's already on its way.
-        if (connecting(app)) { note(app, "connection already in progress"); return }
         lastAuto = now
         val ok = connect(app)
         note(app, if (ok) "asked Android to connect ($rssi dBm)" else "Android refused to connect ($rssi dBm)")
     }
-
-    /** Runs [then] as soon as the headset/audio services are open (checks every 50 ms, up to 2 s). */
-    private fun whenReady(ctx: Context, waited: Long = 0, then: () -> Unit) {
-        if (headset != null || a2dp != null || waited >= 2_000) { then(); return }
-        main.postDelayed({ whenReady(ctx, waited + 50, then) }, 50)
-    }
-
-    fun afterReady(ctx: Context, then: () -> Unit) = whenReady(ctx.applicationContext, 0, then)
 
     fun bluetoothSettings(): Intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
 }
@@ -156,7 +138,7 @@ class ConnectReceiver : BroadcastReceiver() {
         PodsConnector.prepare(ctx)
         val pending = goAsync()
         // The headset service needs a moment to open the first time.
-        PodsConnector.afterReady(ctx) {
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             val ok = PodsConnector.connect(ctx)
             if (!ok) {
                 PodsConnector.connectTappedAt = 0L
@@ -166,6 +148,6 @@ class ConnectReceiver : BroadcastReceiver() {
             }
             WidgetUpdater.updateAll(ctx)
             pending.finish()
-        }
+        }, 400)
     }
 }
