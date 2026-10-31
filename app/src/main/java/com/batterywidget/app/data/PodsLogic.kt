@@ -303,9 +303,9 @@ class SignalSmoother(private val windowMs: Long = 4_000, private val minSamples:
  * carry a state (the first data byte, and the last one). The rest of a Find My message is an
  * encrypted key that changes all the time, so it's left out.
  */
-data class AppleSig(val type: Int, val len: Int, val first: Int, val last: Int) {
+data class AppleSig(val type: Int, val len: Int, val first: Int, val last: Int, val extra: String = "") {
     override fun toString() =
-        "%02X len %d first %02X last %02X".format(type, len, first, last)
+        "%02X len %d first %02X last %02X".format(type, len, first, last) + (if (extra.isEmpty()) "" else " $extra")
 
     companion object {
         fun all(data: ByteArray): List<AppleSig> {
@@ -318,7 +318,12 @@ data class AppleSig(val type: Int, val len: Int, val first: Int, val last: Int) 
                 val end = minOf(data.size, start + len)
                 val first = if (start < end) data[start].toInt() and 0xFF else -1
                 val last = if (start < end) data[end - 1].toInt() and 0xFF else -1
-                out += AppleSig(type, len, first, last)
+                // AirPods status (07): show model, status and byte 6, where Pro 3 keep the lid bit (0x08).
+                val extra = if (type == 0x07 && end - start >= 7) "model %02X%02X status %02X b6 %02X".format(
+                    data[start + 1].toInt() and 0xFF, data[start + 2].toInt() and 0xFF,
+                    data[start + 3].toInt() and 0xFF, data[start + 6].toInt() and 0xFF
+                ) else ""
+                out += AppleSig(type, len, first, last, extra)
                 i = start + len
             }
             return out

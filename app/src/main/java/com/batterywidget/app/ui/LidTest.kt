@@ -34,12 +34,14 @@ import kotlinx.coroutines.delay
 fun ColumnScope.LidTest() {
     val ctx = LocalContext.current
     var recording by remember { mutableStateOf(LidRecorder.active) }
-    var left by remember { mutableIntStateOf(LidRecorder.secondsLeft()) }
+    var left by remember { mutableIntStateOf(LidRecorder.phaseSecondsLeft()) }
+    var phase by remember { mutableIntStateOf(LidRecorder.phase) }
     var result by remember { mutableStateOf("") }
 
     LaunchedEffect(recording) {
         while (recording) {
-            left = LidRecorder.secondsLeft()
+            left = LidRecorder.phaseSecondsLeft()
+            phase = LidRecorder.phase
             if (!LidRecorder.active) { recording = false; result = LidRecorder.summary() }
             delay(500)
         }
@@ -48,16 +50,18 @@ fun ColumnScope.LidTest() {
     Text("Lid test", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
     if (!recording) {
         Text(
-            "Disconnect the AirPods first. Tap Start, then open and close the lid next to the phone a few " +
-                "times, tapping \"Lid opened\" / \"Lid closed\" each time. Then tap Copy and paste it to Claude.",
+            "Disconnect the AirPods first, case closed. Tap Start: it scans in 3 ways, 20 s each. In EACH part, " +
+                "open the lid next to the phone and tap \"Lid opened\", wait 5 s, then close it and tap " +
+                "\"Lid closed\". When it's done, tap Copy and paste it to Claude.",
             color = Color(0xFFB6C2CF), fontSize = 13.sp
         )
         Button(
-            onClick = { LidRecorder.start(); result = ""; recording = true },
+            onClick = { LidRecorder.start(ctx); result = ""; recording = true },
             modifier = Modifier.fillMaxWidth().height(48.dp)
-        ) { Text("Start (60 s)") }
+        ) { Text("Start (3 × 20 s)") }
     } else {
-        Text("Recording… ${left}s left", color = Color(0xFFFB923C), fontSize = 14.sp)
+        val name = LidRecorder.phases.getOrElse(phase) { "" }
+        Text("Part ${phase + 1} of 3: $name · ${left}s left", color = Color(0xFFFB923C), fontSize = 14.sp)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = { LidRecorder.mark("Lid opened") }, modifier = Modifier.weight(1f).height(56.dp)) { Text("Lid opened") }
             Button(onClick = { LidRecorder.mark("Lid closed") }, modifier = Modifier.weight(1f).height(56.dp)) { Text("Lid closed") }
