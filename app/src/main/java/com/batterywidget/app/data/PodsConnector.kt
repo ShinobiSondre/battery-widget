@@ -257,7 +257,6 @@ object PodsConnector {
     fun findMySignal(ctx: Context, now: Long, rssi: Int) {
         if (rssi == 127) return
         signalRssi = rssi; signalAt = now
-        WidgetUpdater.showSignal(ctx.applicationContext)
         if (rssi < RESTART_RSSI) return
         val crossed = now - strongAt > 15_000 // was weaker (or unheard) for a while: it just got close
         strongAt = now

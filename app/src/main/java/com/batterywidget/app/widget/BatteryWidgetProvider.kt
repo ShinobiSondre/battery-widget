@@ -120,34 +120,6 @@ object WidgetUpdater {
         main.postDelayed(redrawTask, (at - now).coerceAtLeast(100))
     }
 
-    @Volatile private var shownSignal = ""
-    @Volatile private var signalShownAt = 0L
-
-    /**
-     * The live Find My signal in the widget's corner: a small text that changes in place (no
-     * crossfade), at most once a second, only while the screen is on.
-     */
-    fun showSignal(ctx: Context) {
-        val now = System.currentTimeMillis()
-        if (now - signalShownAt < 1_000) return
-        val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
-        if (!pm.isInteractive) return
-        val rssi = PodsConnector.signalRssi
-        val fresh = now - PodsConnector.signalAt < 20_000
-        val text = if (fresh) "Find My $rssi" else "Find My –"
-        if (text == shownSignal) return
-        val mgr = AppWidgetManager.getInstance(ctx)
-        val ids = mgr.getAppWidgetIds(ComponentName(ctx, BatteryWidgetProvider::class.java))
-        if (ids.isEmpty()) return
-        shownSignal = text; signalShownAt = now
-        val views = RemoteViews(ctx.packageName, R.layout.widget_battery)
-        views.setTextViewText(R.id.widget_signal, text)
-        views.setTextColor(R.id.widget_signal,
-            if (fresh && rssi >= PodsConnector.RESTART_RSSI) 0xFF4ADE80.toInt() else 0xB3FFFFFF.toInt())
-        views.setViewVisibility(R.id.widget_signal, View.VISIBLE)
-        for (id in ids) mgr.partiallyUpdateAppWidget(id, views)
-    }
-
     /**
      * Redraws now, or, if it just redrew, once more 2 seconds later, so a change is never lost
      * and the widget isn't redrawn many times a second.
@@ -227,10 +199,6 @@ object WidgetUpdater {
             } else null
 
             val views = RemoteViews(ctx.packageName, R.layout.widget_battery)
-            if (shownSignal.isNotEmpty()) {
-                views.setTextViewText(R.id.widget_signal, shownSignal)
-                views.setViewVisibility(R.id.widget_signal, View.VISIBLE)
-            }
             views.setViewVisibility(R.id.widget_connect, if (offerConnect) View.VISIBLE else View.GONE)
             if (offerConnect) views.setOnClickPendingIntent(R.id.widget_connect, connectIntent(ctx))
             if (glow != null) {
