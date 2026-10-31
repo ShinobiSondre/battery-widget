@@ -185,30 +185,31 @@ class RetryWindow(private val intervalMs: Long = 3_000, private val lengthMs: Lo
         data class Stop(val reason: String) : Step()
     }
 
-    private var until = 0L
-    private var lastTry = 0L
+    private var until: Long? = null
+    private var lastTry: Long? = null
     var reason = ""; private set
 
-    val active get() = until > 0L
+    val active get() = until != null
 
     /** Opens the window (or keeps an open one going). Returns true if it was newly opened. */
     fun start(now: Long, why: String): Boolean {
         val fresh = !active
-        if (fresh) { reason = why; lastTry = 0L }
+        if (fresh) { reason = why; lastTry = null }
         until = now + lengthMs
         return fresh
     }
 
-    fun stop() { until = 0L }
+    fun stop() { until = null }
 
     /** Called every [intervalMs] while active. */
     fun tick(now: Long, enabled: Boolean, connected: Boolean, connecting: Boolean): Step {
         if (!active) return Step.Stop("not active")
         if (!enabled) { stop(); return Step.Stop("auto-connect is off") }
         if (connected) { stop(); return Step.Stop("connected") }
-        if (now >= until) { stop(); return Step.Stop("gave up after ${lengthMs / 1000} s") }
+        if (now >= until!!) { stop(); return Step.Stop("gave up after ${lengthMs / 1000} s") }
         if (connecting) return Step.Wait
-        if (lastTry != 0L && now - lastTry < intervalMs - 200) return Step.Wait
+        val last = lastTry
+        if (last != null && now - last < intervalMs - 200) return Step.Wait
         lastTry = now
         return Step.Connect
     }
