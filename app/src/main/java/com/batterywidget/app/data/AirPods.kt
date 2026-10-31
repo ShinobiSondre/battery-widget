@@ -147,7 +147,7 @@ object AirPods {
     /** Makes sure the always-on listener is running (when it's switched on). */
     fun sync(ctx: Context) {
         AirPodsService.ensure(ctx)
-        if (PodsConnector.connected(ctx)) AapClient.start(ctx)
+        if (PodsConnector.soundConnected(ctx)) AapClient.start(ctx)
         if (Prefs.alwaysListen(ctx)) startSystemScan(ctx) else stopSystemScan(ctx)
     }
 

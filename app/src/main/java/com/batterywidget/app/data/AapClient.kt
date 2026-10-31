@@ -56,7 +56,7 @@ object AapClient {
         while (!Thread.currentThread().isInterrupted && attempts < 4) {
             attempts++
             val dev = PodsConnector.pairedPods(ctx) ?: run { note(ctx, "no paired AirPods"); return }
-            if (!PodsConnector.connected(ctx)) { note(ctx, "AirPods not connected"); return }
+            if (!PodsConnector.soundConnected(ctx)) { note(ctx, "AirPods not connected"); return }
             try {
                 val s = createSocket(dev)
                 socket = s
