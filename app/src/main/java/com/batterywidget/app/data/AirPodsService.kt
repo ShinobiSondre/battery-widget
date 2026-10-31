@@ -70,6 +70,11 @@ class AirPodsService : Service() {
                 }
                 Intent.ACTION_POWER_CONNECTED, Intent.ACTION_POWER_DISCONNECTED ->
                     WidgetUpdater.updateAllThrottled(ctx, force = true)
+                // Headset or audio link finished connecting: redraw now (hides the connect button).
+                HEADSET_STATE, A2DP_STATE -> {
+                    WidgetUpdater.updateAllThrottled(ctx, force = true)
+                    updateNotice()
+                }
                 BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
                     AirPods.onConnectionChange(ctx, intent)
                     WidgetUpdater.updateAllThrottled(ctx, force = true)
@@ -104,6 +109,8 @@ class AirPodsService : Service() {
             addAction(Intent.ACTION_BATTERY_CHANGED)
             addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(Intent.ACTION_POWER_DISCONNECTED)
+            addAction(HEADSET_STATE)
+            addAction(A2DP_STATE)
             addAction(BluetoothDevice.ACTION_ACL_CONNECTED)
             addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED)
         }
@@ -234,6 +241,8 @@ class AirPodsService : Service() {
     companion object {
         private const val CHANNEL = "batteries"
         private const val NOTE_ID = 42
+        const val HEADSET_STATE = "android.bluetooth.headset.profile.action.CONNECTION_STATE_CHANGED"
+        const val A2DP_STATE = "android.bluetooth.a2dp.profile.action.CONNECTION_STATE_CHANGED"
         const val BATTERY_LEVEL_CHANGED = "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED"
         const val EXTRA_BATTERY_LEVEL = "android.bluetooth.device.extra.BATTERY_LEVEL"
 

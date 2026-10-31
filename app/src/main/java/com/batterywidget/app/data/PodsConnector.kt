@@ -56,6 +56,8 @@ object PodsConnector {
 
     /** Whether these AirPods (not just any headset) are connected right now. */
     fun connected(ctx: Context): Boolean {
+        // The Bluetooth link comes up a few seconds before audio does; count it straight away.
+        if (Prefs.podsLinked(ctx)) return true
         val dev = pairedPods(ctx) ?: return false
         val viaProfiles = try {
             listOfNotNull(headset, a2dp).any { p -> p.connectedDevices.any { it.address == dev.address } }
@@ -71,7 +73,11 @@ object PodsConnector {
     }
 
     /** True when the widget should offer the connect button. */
-    fun canOffer(ctx: Context) = pairedPods(ctx) != null && !connected(ctx)
+    fun canOffer(ctx: Context) =
+        System.currentTimeMillis() - connectTappedAt > 12_000 && pairedPods(ctx) != null && !connected(ctx)
+
+    /** Set when the button is tapped, so it hides at once while the connection is made. */
+    @Volatile var connectTappedAt = 0L
 
     /**
      * Asks Android to connect the AirPods. Returns false when this phone doesn't allow it
@@ -126,12 +132,16 @@ object PodsConnector {
 /** The widget's connect button. */
 class ConnectReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
+        // Hide the button right away; it comes back only if connecting fails.
+        PodsConnector.connectTappedAt = System.currentTimeMillis()
+        WidgetUpdater.updateAll(ctx)
         PodsConnector.prepare(ctx)
         val pending = goAsync()
         // The headset service needs a moment to open the first time.
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
             val ok = PodsConnector.connect(ctx)
             if (!ok) {
+                PodsConnector.connectTappedAt = 0L
                 try {
                     ctx.startActivity(PodsConnector.bluetoothSettings().addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 } catch (_: Exception) { }
