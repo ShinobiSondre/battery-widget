@@ -62,7 +62,6 @@ class AirPodsService : Service() {
                 }
                 // Some phones pause scans while the screen is off: restart, but only if it looks
                 // stuck, so screen-ons don't use up Android's 5-starts-in-30-seconds limit.
-                Intent.ACTION_USER_PRESENT -> PodsConnector.onUnlock(ctx)
                 Intent.ACTION_SCREEN_ON -> {
                     if (quietFor() > 60_000) restartScan("screen on, scan was quiet")
                 }
