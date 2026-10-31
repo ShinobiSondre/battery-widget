@@ -239,6 +239,7 @@ class AirPodsService : Service() {
                 !scanning -> startScan()
             }
             AirPods.startSystemScan(this@AirPodsService) // only starts it if it isn't running
+            SleepGuard.check(this@AirPodsService) // put back to sleep? one-tap notification
             handler.postDelayed(this, 60_000)
         }
     }

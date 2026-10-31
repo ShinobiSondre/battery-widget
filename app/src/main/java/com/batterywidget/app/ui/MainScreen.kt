@@ -5,6 +5,7 @@ import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Build
 import android.net.Uri
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
@@ -292,6 +293,17 @@ fun MainScreen() {
             }
         }
 
+        // Put back to sleep? Bring up Android's Allow prompt right away (once each time the
+        // app opens), so it's one tap instead of finding this card.
+        var autoAsked by rememberSaveable { mutableStateOf(false) }
+        LaunchedEffect(hasPerms, unrestricted) {
+            if (hasPerms && !unrestricted && !autoAsked) {
+                autoAsked = true
+                delay(600)
+                com.batterywidget.app.data.SleepGuard.openPrompt(ctx)
+            }
+        }
+
         AnimatedVisibility(hasPerms && !unrestricted) {
             Section {
                 Text("Let it run in the background", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
@@ -301,15 +313,7 @@ fun MainScreen() {
                     color = Muted, fontSize = 14.sp
                 )
                 Button(
-                    onClick = {
-                        val i = Intent(
-                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
-                            Uri.parse("package:${ctx.packageName}")
-                        )
-                        try { ctx.startActivity(i) } catch (_: Exception) {
-                            ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
-                        }
-                    },
+                    onClick = { com.batterywidget.app.data.SleepGuard.openPrompt(ctx) },
                     modifier = Modifier.fillMaxWidth().height(48.dp)
                 ) { Text("Don't put it to sleep") }
             }
