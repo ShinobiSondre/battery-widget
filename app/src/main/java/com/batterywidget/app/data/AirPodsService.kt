@@ -94,6 +94,7 @@ class AirPodsService : Service() {
         super.onCreate()
         running = true
         if (!goForeground()) { stopSelf(); return }
+        PodsConnector.prepare(this)
         val f = IntentFilter().apply {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(Intent.ACTION_SCREEN_ON)

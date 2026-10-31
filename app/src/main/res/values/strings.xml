@@ -2,5 +2,6 @@
 <resources>
     <string name="app_name">Battery Widget</string>
     <string name="widget_name">Batteries</string>
+    <string name="connect_airpods">Connect AirPods</string>
     <string name="widget_description">Battery of your phone, AirPods and other Bluetooth devices. Tap to refresh.</string>
 </resources>

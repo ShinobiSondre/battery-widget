@@ -70,6 +70,11 @@
             android:name=".update.InstallResultReceiver"
             android:exported="false" />
 
+        <!-- The widget's "connect AirPods" button -->
+        <receiver
+            android:name=".data.ConnectReceiver"
+            android:exported="false" />
+
         <!-- Woken by Android's Bluetooth system when it hears AirPods -->
         <receiver
             android:name=".data.AirPodsScanReceiver"

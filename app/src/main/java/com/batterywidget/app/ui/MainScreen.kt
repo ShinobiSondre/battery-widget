@@ -82,6 +82,7 @@ import com.batterywidget.app.data.AirPodsService
 import com.batterywidget.app.data.Devices
 import com.batterywidget.app.data.IconKind
 import com.batterywidget.app.data.Perms
+import com.batterywidget.app.data.PodsConnector
 import com.batterywidget.app.data.Prefs
 import com.batterywidget.app.data.WidgetStyle
 import com.batterywidget.app.update.Updater
@@ -107,6 +108,9 @@ fun MainScreen() {
     var locationOn by remember { mutableStateOf(Perms.locationOn(ctx)) }
     var bgLocation by remember { mutableStateOf(Perms.hasBackgroundLocation(ctx)) }
     var unrestricted by remember { mutableStateOf(batteryUnrestricted(ctx)) }
+    var canConnect by remember { mutableStateOf(PodsConnector.canOffer(ctx)) }
+    var autoConnect by remember { mutableStateOf(Prefs.autoConnect(ctx)) }
+    var connectBlocked by remember { mutableStateOf(Prefs.connectBlocked(ctx)) }
     var listen by remember { mutableStateOf(Prefs.alwaysListen(ctx)) }
     var status by remember { mutableStateOf(listenerStatus(ctx)) }
     var debug by remember { mutableStateOf(debugLine(ctx)) }
@@ -149,6 +153,8 @@ fun MainScreen() {
             if (nowBg && !bgLocation) AirPodsService.restart(ctx)
             bgLocation = nowBg
             unrestricted = batteryUnrestricted(ctx)
+            canConnect = PodsConnector.canOffer(ctx)
+            connectBlocked = Prefs.connectBlocked(ctx)
             delay(3000)
         }
     }
@@ -331,6 +337,29 @@ fun MainScreen() {
                 items.forEach { item ->
                     key(item.name) { DeviceRow(item, spotlight = item.name in joined) }
                 }
+            }
+            AnimatedVisibility(canConnect) {
+                OutlinedButton(
+                    onClick = {
+                        PodsConnector.prepare(ctx)
+                        scope.launch {
+                            delay(400)
+                            if (!PodsConnector.connect(ctx)) ctx.startActivity(PodsConnector.bluetoothSettings())
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("Connect AirPods", color = Color.White) }
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Auto-connect AirPods", color = Color.White, fontSize = 15.sp)
+                    Text(
+                        if (connectBlocked) "This phone doesn't let apps connect Bluetooth devices. The widget button opens Bluetooth settings instead."
+                        else "Connects them by themselves when you open the case next to the phone.",
+                        color = Muted, fontSize = 13.sp
+                    )
+                }
+                Switch(checked = autoConnect, onCheckedChange = { autoConnect = it; Prefs.setAutoConnect(ctx, it) })
             }
             if (items.size == 1) {
                 Text(

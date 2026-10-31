@@ -21,6 +21,8 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.batterywidget.app.R
 import com.batterywidget.app.data.AirPods
+import com.batterywidget.app.data.ConnectReceiver
+import com.batterywidget.app.data.PodsConnector
 import com.batterywidget.app.data.Devices
 import com.batterywidget.app.data.Item
 import com.batterywidget.app.data.Prefs
@@ -150,13 +152,14 @@ object WidgetUpdater {
         val opacity = Prefs.opacity(ctx)
         val density = ctx.resources.displayMetrics.density
         val charging = Renderer.anyGlow(items)
+        val offerConnect = PodsConnector.canOffer(ctx)
         for (id in ids) {
             val o = mgr.getAppWidgetOptions(id)
             // Portrait size: the narrowest width and the tallest height.
             val wDp = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: 250
             val hDp = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 160
             // Nothing changed? Then don't redraw (and don't play a crossfade for nothing).
-            val sig = "${items.joinToString { "${it.name}:${it.level}:${it.charging}" }}|$style|$opacity|$wDp|$hDp|$highlight"
+            val sig = "${items.joinToString { "${it.name}:${it.level}:${it.charging}" }}|$style|$opacity|$wDp|$hDp|$highlight|$offerConnect"
             val firstTime = !Prefs.widgetDrawn(ctx, id)
             if (!full && !firstTime && sig == Prefs.widgetSig(ctx, id)) continue
             Prefs.setWidgetSig(ctx, id, sig)
@@ -169,6 +172,8 @@ object WidgetUpdater {
             } else null
 
             val views = RemoteViews(ctx.packageName, R.layout.widget_battery)
+            views.setViewVisibility(R.id.widget_connect, if (offerConnect) View.VISIBLE else View.GONE)
+            if (offerConnect) views.setOnClickPendingIntent(R.id.widget_connect, connectIntent(ctx))
             if (glow != null) {
                 views.setImageViewBitmap(R.id.widget_glow_on, glow)
                 views.setViewVisibility(R.id.widget_glow, View.VISIBLE)
@@ -194,6 +199,14 @@ object WidgetUpdater {
             }
         }
     }
+
+    /** Connects the AirPods, or opens Bluetooth settings on phones that don't allow that. */
+    private fun connectIntent(ctx: Context): PendingIntent =
+        if (Prefs.connectBlocked(ctx)) PendingIntent.getActivity(
+            ctx, 5, PodsConnector.bluetoothSettings(), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        ) else PendingIntent.getBroadcast(
+            ctx, 6, Intent(ctx, ConnectReceiver::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
 
     private fun refreshIntent(ctx: Context): PendingIntent = PendingIntent.getBroadcast(
         ctx, 1,

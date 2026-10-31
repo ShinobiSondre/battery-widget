@@ -74,6 +74,18 @@ object Prefs {
     fun podsLinked(c: Context) = sp(c).getBoolean("pods_linked", false)
     fun setPodsLinked(c: Context, v: Boolean) = sp(c).edit().putBoolean("pods_linked", v).commit()
 
+    /** The AirPods' Bluetooth address, remembered the first time they connect. */
+    fun podsAddress(c: Context) = sp(c).getString("pods_address", null)
+    fun setPodsAddress(c: Context, v: String) = sp(c).edit().putString("pods_address", v).apply()
+
+    /** Connect the AirPods by themselves when the case opens next to the phone. */
+    fun autoConnect(c: Context) = sp(c).getBoolean("auto_connect", true)
+    fun setAutoConnect(c: Context, v: Boolean) = sp(c).edit().putBoolean("auto_connect", v).apply()
+
+    /** This phone doesn't let apps connect Bluetooth devices (the button opens settings instead). */
+    fun connectBlocked(c: Context) = sp(c).getBoolean("connect_blocked", false)
+    fun setConnectBlocked(c: Context, v: Boolean) = sp(c).edit().putBoolean("connect_blocked", v).apply()
+
     fun lastWidgetDraw(c: Context) = sp(c).getLong("last_draw", 0L)
     fun setLastWidgetDraw(c: Context, t: Long) = sp(c).edit().putLong("last_draw", t).apply()
 }

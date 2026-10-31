@@ -70,7 +70,9 @@ object AirPods {
             ?: return
         val name = try { d.name } catch (_: SecurityException) { null } ?: return
         if (!name.contains("pods", ignoreCase = true)) return
-        Prefs.setPodsLinked(ctx, intent.action == android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED)
+        val connected = intent.action == android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED
+        Prefs.setPodsLinked(ctx, connected)
+        if (connected) Prefs.setPodsAddress(ctx, d.address)
     }
 
     /**
@@ -221,6 +223,7 @@ object AirPods {
             .mapNotNull { r -> r.scanRecord?.getManufacturerSpecificData(APPLE)?.let { parse(it)?.let { p -> r to p } } }
             .maxByOrNull { it.first.rssi } ?: return false
         val (result, reading) = best
+        PodsConnector.autoConnect(ctx, result.rssi)
         Prefs.setLastHeard(ctx, reading.at, result.rssi)
         val old = Prefs.loadPods(ctx)
         val changed = !reading.sameLevels(old)
