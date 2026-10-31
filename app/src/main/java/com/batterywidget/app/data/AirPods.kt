@@ -1,6 +1,14 @@
 package com.batterywidget.app.data
 
+import android.app.PendingIntent
 import android.bluetooth.BluetoothManager
+import android.bluetooth.le.BluetoothLeScanner
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
+import android.content.Intent
+import android.os.Build
+import androidx.core.content.IntentCompat
 import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanResult
 import android.content.Context
@@ -121,7 +129,47 @@ object AirPods {
     } catch (_: SecurityException) { false }
 
     /** Makes sure the always-on listener is running (when it's switched on). */
-    fun sync(ctx: Context) = AirPodsService.ensure(ctx)
+    fun sync(ctx: Context) {
+        AirPodsService.ensure(ctx)
+        if (Prefs.alwaysListen(ctx)) startSystemScan(ctx) else stopSystemScan(ctx)
+    }
+
+    private fun systemScanIntent(ctx: Context): PendingIntent {
+        var flags = PendingIntent.FLAG_UPDATE_CURRENT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) flags = flags or PendingIntent.FLAG_MUTABLE
+        return PendingIntent.getBroadcast(ctx, 7, Intent(ctx, AirPodsScanReceiver::class.java), flags)
+    }
+
+    /**
+     * Hands the listening to Android's own Bluetooth system. It keeps going even when Samsung
+     * or Android closes the app to save battery, and wakes the app only when AirPods speak.
+     */
+    fun startSystemScan(ctx: Context) {
+        if (!Perms.hasScan(ctx)) return
+        try {
+            val a = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+            val scanner = (if (a != null && a.isEnabled) a.bluetoothLeScanner else null) ?: return
+            // Only AirPods status messages (07 19), so the app isn't woken for every iPhone nearby.
+            val filter = ScanFilter.Builder()
+                .setManufacturerData(APPLE, byteArrayOf(0x07, 0x19), byteArrayOf(-1, -1))
+                .build()
+            val settings = ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+                .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+                .build()
+            val pi = systemScanIntent(ctx)
+            scanner.stopScan(pi)
+            scanner.startScan(listOf(filter), settings, pi)
+        } catch (_: Exception) { }
+    }
+
+    fun stopSystemScan(ctx: Context) {
+        if (!Perms.hasScan(ctx)) return
+        try {
+            val a = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+            a?.bluetoothLeScanner?.stopScan(systemScanIntent(ctx))
+        } catch (_: Exception) { }
+    }
 
     private class Tally { var count = 0; var best = -999; var hex = "" }
     private val tally = HashMap<String, Tally>()
@@ -165,5 +213,16 @@ object AirPods {
         Prefs.savePods(ctx, reading)
         if (changed || wasHidden) WidgetUpdater.updateAllThrottled(ctx, force = wasHidden)
         return changed || wasHidden
+    }
+}
+
+/** Woken by Android's Bluetooth system when it hears AirPods, even if the app was closed. */
+class AirPodsScanReceiver : BroadcastReceiver() {
+    override fun onReceive(ctx: Context, intent: Intent) {
+        val results = IntentCompat.getParcelableArrayListExtra(
+            intent, BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT, ScanResult::class.java
+        ) ?: return
+        AirPods.onResults(ctx, results)
+        AirPodsService.ensure(ctx) // bring the listener back if it was closed
     }
 }

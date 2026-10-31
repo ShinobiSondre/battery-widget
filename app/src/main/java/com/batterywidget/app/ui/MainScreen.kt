@@ -106,6 +106,7 @@ fun MainScreen() {
     var hasPerms by remember { mutableStateOf(Perms.all(ctx)) }
     var locationOn by remember { mutableStateOf(Perms.locationOn(ctx)) }
     var bgLocation by remember { mutableStateOf(Perms.hasBackgroundLocation(ctx)) }
+    var unrestricted by remember { mutableStateOf(batteryUnrestricted(ctx)) }
     var listen by remember { mutableStateOf(Prefs.alwaysListen(ctx)) }
     var status by remember { mutableStateOf(listenerStatus(ctx)) }
     var debug by remember { mutableStateOf(debugLine(ctx)) }
@@ -129,6 +130,7 @@ fun MainScreen() {
         hasPerms = Perms.all(ctx)
         bgLocation = Perms.hasBackgroundLocation(ctx)
         AirPodsService.restart(ctx)
+        AirPods.sync(ctx)
         items = Devices.read(ctx)
         WidgetUpdater.updateAll(ctx)
     }
@@ -140,12 +142,13 @@ fun MainScreen() {
             status = listenerStatus(ctx)
             debug = debugLine(ctx)
             val nowPerms = Perms.all(ctx)
-            if (nowPerms && !hasPerms) AirPodsService.restart(ctx)
+            if (nowPerms && !hasPerms) { AirPodsService.restart(ctx); AirPods.sync(ctx) }
             hasPerms = nowPerms
             locationOn = Perms.locationOn(ctx)
             val nowBg = Perms.hasBackgroundLocation(ctx)
             if (nowBg && !bgLocation) AirPodsService.restart(ctx)
             bgLocation = nowBg
+            unrestricted = batteryUnrestricted(ctx)
             delay(3000)
         }
     }
@@ -281,6 +284,29 @@ fun MainScreen() {
             }
         }
 
+        AnimatedVisibility(hasPerms && !unrestricted) {
+            Section {
+                Text("Let it run in the background", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    "Samsung puts apps to sleep to save battery, which stops AirPods updates while the app is closed. " +
+                        "Tap below and choose Allow (or set Battery to Unrestricted).",
+                    color = Muted, fontSize = 14.sp
+                )
+                Button(
+                    onClick = {
+                        val i = Intent(
+                            Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                            Uri.parse("package:${ctx.packageName}")
+                        )
+                        try { ctx.startActivity(i) } catch (_: Exception) {
+                            ctx.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${ctx.packageName}")))
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp)
+                ) { Text("Don't put it to sleep") }
+            }
+        }
+
         Section {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -338,6 +364,11 @@ fun MainScreen() {
             }) { Text("Check for update") }
         }
     }
+}
+
+private fun batteryUnrestricted(ctx: android.content.Context): Boolean {
+    val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+    return pm.isIgnoringBatteryOptimizations(ctx.packageName)
 }
 
 private fun debugLine(ctx: android.content.Context): String {
