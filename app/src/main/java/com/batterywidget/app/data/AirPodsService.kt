@@ -113,7 +113,7 @@ class AirPodsService : Service() {
         val scanner = if (adapter != null && adapter.isEnabled) adapter.bluetoothLeScanner else null
         if (scanner == null) { Prefs.setListenerNote(this, "Bluetooth is off"); return }
         val filter = ScanFilter.Builder()
-            .setManufacturerData(AirPods.APPLE, byteArrayOf(0x07), byteArrayOf(-1))
+            .setManufacturerData(AirPods.APPLE, ByteArray(0)) // any Apple broadcast; sorted out in code
             .build()
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build()
         try {

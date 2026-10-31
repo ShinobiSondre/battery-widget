@@ -47,7 +47,35 @@ object AirPods {
         return if (System.currentTimeMillis() - p.at < FRESH_MS) p else null
     }
 
-    fun parse(d: ByteArray): PodsReading? {
+    /**
+     * Apple packs several small messages into one broadcast, each as [type, length, data...].
+     * Newer AirPods can put other messages before the battery one, so look through all of them.
+     */
+    fun parse(all: ByteArray): PodsReading? {
+        var i = 0
+        while (i + 1 < all.size) {
+            val type = all[i].toInt() and 0xFF
+            val len = all[i + 1].toInt() and 0xFF
+            if (type == 0x07) {
+                return parseStatus(all.copyOfRange(i, minOf(all.size, i + 2 + len)))
+            }
+            i += 2 + len
+        }
+        return null
+    }
+
+    /** Message types found in a broadcast, for the debug line (like "10 07"). */
+    fun types(all: ByteArray): String {
+        val out = mutableListOf<String>()
+        var i = 0
+        while (i + 1 < all.size) {
+            out += "%02X".format(all[i].toInt() and 0xFF)
+            i += 2 + (all[i + 1].toInt() and 0xFF)
+        }
+        return out.joinToString(" ")
+    }
+
+    private fun parseStatus(d: ByteArray): PodsReading? {
         // 0x07 = "proximity pairing" status message. Older and newer AirPods differ in length,
         // but the battery part sits in the same place.
         if (d.size < 9 || d[0] != 0x07.toByte()) return null
@@ -90,6 +118,18 @@ object AirPods {
 
     /** Handles AirPods messages. Returns true when the battery changed. */
     fun onResults(ctx: Context, results: List<ScanResult>): Boolean {
+        // Debug line: remember the latest Apple broadcast with a status message in it, if any.
+        for (r in results) {
+            val data = r.scanRecord?.getManufacturerSpecificData(APPLE) ?: continue
+            val t = types(data)
+            val since = System.currentTimeMillis() - Prefs.debugAt(ctx)
+            if ("07" in t.split(" ")) {
+                if (since < 5_000) continue
+                Prefs.setDebug(ctx, "07 heard ${r.rssi} dBm · " + data.joinToString("") { "%02X".format(it.toInt() and 0xFF) })
+            } else if (since > 60_000) {
+                Prefs.setDebug(ctx, "Apple signals only (types $t)")
+            }
+        }
         val best = results
             .filter { it.rssi >= NEAR_RSSI }
             .mapNotNull { r -> r.scanRecord?.getManufacturerSpecificData(APPLE)?.let { parse(it)?.let { p -> r to p } } }

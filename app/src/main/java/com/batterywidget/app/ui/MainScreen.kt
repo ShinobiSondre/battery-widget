@@ -80,6 +80,7 @@ fun MainScreen() {
     var hasPerms by remember { mutableStateOf(Perms.all(ctx)) }
     var listen by remember { mutableStateOf(Prefs.alwaysListen(ctx)) }
     var status by remember { mutableStateOf(listenerStatus(ctx)) }
+    var debug by remember { mutableStateOf(debugLine(ctx)) }
 
     val askPerms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         hasPerms = Perms.all(ctx)
@@ -93,6 +94,7 @@ fun MainScreen() {
         while (true) {
             items = Devices.read(ctx)
             status = listenerStatus(ctx)
+            debug = debugLine(ctx)
             delay(3000)
         }
     }
@@ -188,6 +190,7 @@ fun MainScreen() {
                 })
             }
             Text(status, color = Muted, fontSize = 13.sp)
+            if (debug.isNotBlank()) Text(debug, color = Muted.copy(alpha = 0.7f), fontSize = 11.sp)
         }
 
         Section {
@@ -235,6 +238,13 @@ fun MainScreen() {
             }) { Text("Check for update") }
         }
     }
+}
+
+private fun debugLine(ctx: android.content.Context): String {
+    val at = Prefs.debugAt(ctx)
+    if (at == 0L) return if (AirPodsService.running) "Debug: no Apple Bluetooth signals received yet" else ""
+    val secs = (System.currentTimeMillis() - at) / 1000
+    return "Debug (${secs}s ago): ${Prefs.debug(ctx)}"
 }
 
 private fun listenerStatus(ctx: android.content.Context): String {

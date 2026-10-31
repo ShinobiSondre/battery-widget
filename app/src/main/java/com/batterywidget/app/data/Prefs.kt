@@ -52,6 +52,12 @@ object Prefs {
     fun deviceBattery(c: Context, address: String): Pair<Int, Long> =
         sp(c).getInt("bt_lvl_$address", -1) to sp(c).getLong("bt_at_$address", 0L)
 
+    /** What the listener last received, shown small in the app to help fix problems. */
+    fun debug(c: Context) = sp(c).getString("debug", "") ?: ""
+    fun debugAt(c: Context) = sp(c).getLong("debug_at", 0L)
+    fun setDebug(c: Context, v: String) =
+        sp(c).edit().putString("debug", v).putLong("debug_at", System.currentTimeMillis()).apply()
+
     fun lastWidgetDraw(c: Context) = sp(c).getLong("last_draw", 0L)
     fun setLastWidgetDraw(c: Context, t: Long) = sp(c).edit().putLong("last_draw", t).apply()
 }
