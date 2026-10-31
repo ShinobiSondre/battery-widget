@@ -32,7 +32,12 @@ jobs:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
           if [ -z "$KEYSTORE_BASE64" ]; then
-            echo "::error::Add the KEYSTORE_BASE64 and KEYSTORE_PASSWORD secrets (Settings → Secrets and variables → Actions)."
+            # No key yet: still check that the code compiles, then stop before releasing.
+            set +e
+            gradle :app:assembleDebug --no-daemon 2>&1 | tee build.log
+            status=${PIPESTATUS[0]}
+            grep -E "^e: |What went wrong|Could not (resolve|find)|> .*(error|failed)|Error:" -A2 build.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
+            if [ "$status" -eq 0 ]; then echo "::error::Code compiles. Add the KEYSTORE_BASE64 and KEYSTORE_PASSWORD secrets (Settings → Secrets and variables → Actions) to publish a release."; fi
             exit 1
           fi
           mkdir -p keystore
