@@ -239,13 +239,12 @@ class DisconnectPause(private val silenceMs: Long = 8_000) {
 
 /**
  * For AirPods that never say when the lid opens (like Pro 3 on a Samsung): while the screen is
- * on and their Find My signal is strong (the case is right next to the phone), try connecting
- * every [intervalMs]. Tries while the case
+ * on and their Find My signal is around, try connecting every [intervalMs]. Tries while the case
  * is closed just fail quietly; the first one after the lid opens connects.
  */
 class ScreenOnWatch(
     private val intervalMs: Long = 3_000,
-    private val seenWithinMs: Long = 5_000,
+    private val seenWithinMs: Long = 60_000,
     private val afterDisconnectMs: Long = 60_000,
 ) {
     private var lastTry: Long? = null
@@ -265,7 +264,7 @@ class ScreenOnWatch(
         if (otherAudio) return "another headset or car is connected"
         val d = disconnectedAt
         if (d != null && now - d < afterDisconnectMs) return "just disconnected"
-        if (lastSeenAt == null || now - lastSeenAt > seenWithinMs) return "AirPods not close to the phone"
+        if (lastSeenAt == null || now - lastSeenAt > seenWithinMs) return "AirPods not nearby"
         val last = lastTry
         if (last != null && now - last < intervalMs - 200) return "waiting"
         lastTry = now

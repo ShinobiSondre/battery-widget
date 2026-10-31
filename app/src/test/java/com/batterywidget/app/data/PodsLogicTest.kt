@@ -341,7 +341,6 @@ class ScreenOnWatchTest {
         w.onDisconnected(0)
         assertEquals("just disconnected", w.at(30_000))
         assertNull(w.at(61_000))
-        assertEquals("AirPods not close to the phone", ScreenOnWatch().at(200_000, seen = 100_000))
-        assertEquals("AirPods not close to the phone", ScreenOnWatch().at(10_000, seen = 4_000))
+        assertEquals("AirPods not nearby", ScreenOnWatch().at(200_000, seen = 100_000))
     }
 }
