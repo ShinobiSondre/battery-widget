@@ -245,6 +245,7 @@ class AirPodsScanReceiver : BroadcastReceiver() {
         ) ?: return
         // Stay awake a moment so a delayed redraw can finish.
         val pending = goAsync()
+        PodsConnector.prepare(ctx) // open the headset service now, in case we need to connect
         AirPods.onResults(ctx, results)
         AirPodsService.ensure(ctx) // bring the listener back if it was closed
         android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ pending.finish() }, 3000)

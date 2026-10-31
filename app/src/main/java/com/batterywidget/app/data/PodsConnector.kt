@@ -16,7 +16,7 @@ import com.batterywidget.app.widget.WidgetUpdater
  * that; if this one doesn't, the widget button opens Bluetooth settings instead.
  */
 object PodsConnector {
-    private const val AUTO_GAP_MS = 20_000L
+    private const val AUTO_GAP_MS = 6_000L
 
     @Volatile private var headset: BluetoothProfile? = null
     @Volatile private var a2dp: BluetoothProfile? = null
@@ -117,7 +117,7 @@ object PodsConnector {
             // The app was asleep: open Android's headset service first, then try.
             prepare(app)
             lastAuto = now
-            main.postDelayed({ lastAuto = 0L; autoConnect(app, rssi) }, 700)
+            whenReady(app) { lastAuto = 0L; autoConnect(app, rssi) }
             return
         }
         if (connected(app)) return
@@ -125,6 +125,14 @@ object PodsConnector {
         val ok = connect(app)
         note(app, if (ok) "asked Android to connect ($rssi dBm)" else "Android refused to connect ($rssi dBm)")
     }
+
+    /** Runs [then] as soon as the headset/audio services are open (checks every 50 ms, up to 2 s). */
+    private fun whenReady(ctx: Context, waited: Long = 0, then: () -> Unit) {
+        if (headset != null || a2dp != null || waited >= 2_000) { then(); return }
+        main.postDelayed({ whenReady(ctx, waited + 50, then) }, 50)
+    }
+
+    fun afterReady(ctx: Context, then: () -> Unit) = whenReady(ctx.applicationContext, 0, then)
 
     fun bluetoothSettings(): Intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
 }
@@ -138,7 +146,7 @@ class ConnectReceiver : BroadcastReceiver() {
         PodsConnector.prepare(ctx)
         val pending = goAsync()
         // The headset service needs a moment to open the first time.
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+        PodsConnector.afterReady(ctx) {
             val ok = PodsConnector.connect(ctx)
             if (!ok) {
                 PodsConnector.connectTappedAt = 0L
@@ -148,6 +156,6 @@ class ConnectReceiver : BroadcastReceiver() {
             }
             WidgetUpdater.updateAll(ctx)
             pending.finish()
-        }, 400)
+        }
     }
 }
