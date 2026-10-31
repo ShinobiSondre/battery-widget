@@ -53,6 +53,21 @@
             android:importantForAccessibility="no" />
     </ViewFlipper>
 
+    <!-- Live AirPods Find My signal strength (dBm) -->
+    <TextView
+        android:id="@+id/widget_signal"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_marginEnd="10dp"
+        android:layout_marginBottom="5dp"
+        android:shadowColor="#99000000"
+        android:shadowDy="1"
+        android:shadowRadius="2"
+        android:textColor="#B3FFFFFF"
+        android:textSize="10sp"
+        android:visibility="gone" />
+
     <!-- Shown while the AirPods are paired but not connected: tap to connect -->
     <ImageView
         android:id="@+id/widget_connect"

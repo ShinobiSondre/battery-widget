@@ -119,6 +119,7 @@ class AirPodsService : Service() {
     override fun onCreate() {
         super.onCreate()
         running = true
+        instance = this
         Prefs.addEvent(this, "listener started (${Perms.situation(this)})")
         if (!goForeground()) { stopSelf(); return }
         PodsConnector.prepare(this)
@@ -151,6 +152,7 @@ class AirPodsService : Service() {
     override fun onDestroy() {
         Prefs.addEvent(this, "listener stopped")
         running = false
+        if (instance === this) instance = null
         handler.removeCallbacksAndMessages(null)
         stopScan()
         try { unregisterReceiver(events) } catch (_: Exception) { }
@@ -212,6 +214,25 @@ class AirPodsService : Service() {
             val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
             adapter?.bluetoothLeScanner?.stopScan(callback)
         } catch (_: Exception) { }
+    }
+
+    /**
+     * What switching "Always listen" off and on does, without closing this listener (Android may
+     * not let it reopen while the app is closed): stop both scans, then start them fresh, open
+     * fresh connections to Android's call and music services, and restart the AirPods channel.
+     */
+    fun quickRestart(why: String) {
+        Prefs.addEvent(this, "Always listen off and on: $why")
+        stopScan()
+        AirPods.stopSystemScan(this)
+        AapClient.stop()
+        handler.postDelayed({
+            startScan()
+            AirPods.startSystemScan(this, force = true)
+            PodsConnector.reopen(this) {
+                if (PodsConnector.soundConnected(this)) AapClient.start(this)
+            }
+        }, 400)
     }
 
     private val retryStart = Runnable { startScan() }
@@ -303,6 +324,7 @@ class AirPodsService : Service() {
         const val EXTRA_BATTERY_LEVEL = "android.bluetooth.device.extra.BATTERY_LEVEL"
 
         @Volatile var running = false; private set
+        @Volatile var instance: AirPodsService? = null; private set
 
         /** Starts listening if the user wants it and Android allows it right now. */
         fun ensure(ctx: Context) {

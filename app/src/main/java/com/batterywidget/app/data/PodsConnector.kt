@@ -246,6 +246,28 @@ object PodsConnector {
     /** The AirPods' Find My signal was heard (they send it all the time, case open or closed). */
     fun sawFindMy(now: Long) { findMyAt = now }
 
+    // ---- Live Find My signal: shown on the widget, and a quick restart when it gets strong ----
+    const val RESTART_RSSI = -70
+    @Volatile var signalRssi = 0; private set
+    @Volatile var signalAt = 0L; private set
+    @Volatile private var strongAt = 0L
+    @Volatile private var lastQuickRestart = 0L
+
+    /** Every Find My message with a real strength (127 = the phone didn't say). */
+    fun findMySignal(ctx: Context, now: Long, rssi: Int) {
+        if (rssi == 127) return
+        signalRssi = rssi; signalAt = now
+        WidgetUpdater.showSignal(ctx.applicationContext)
+        if (rssi < RESTART_RSSI) return
+        val crossed = now - strongAt > 15_000 // was weaker (or unheard) for a while: it just got close
+        strongAt = now
+        if (!crossed || now - lastQuickRestart < 30_000) return
+        val app = ctx.applicationContext
+        if (!Prefs.alwaysListen(app) || !Prefs.autoConnect(app) || soundConnected(app)) return
+        lastQuickRestart = now
+        AirPodsService.instance?.quickRestart("Find My $rssi dBm")
+    }
+
     private fun screenOn(app: Context) =
         (app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isInteractive
 
