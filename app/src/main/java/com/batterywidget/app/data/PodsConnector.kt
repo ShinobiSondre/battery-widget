@@ -16,7 +16,7 @@ import com.batterywidget.app.widget.WidgetUpdater
  * that; if this one doesn't, the widget button opens Bluetooth settings instead.
  */
 object PodsConnector {
-    private const val AUTO_GAP_MS = 6_000L
+    private const val AUTO_GAP_MS = 15_000L
 
     @Volatile private var headset: BluetoothProfile? = null
     @Volatile private var a2dp: BluetoothProfile? = null
@@ -65,6 +65,14 @@ object PodsConnector {
         if (viaProfiles) return true
         if (headset != null || a2dp != null) return false // the profiles know, and they say no
         return try { dev.javaClass.getMethod("isConnected").invoke(dev) as Boolean } catch (_: Exception) { Prefs.podsLinked(ctx) }
+    }
+
+    /** True while Android is in the middle of connecting the AirPods. */
+    private fun connecting(ctx: Context): Boolean {
+        val dev = pairedPods(ctx) ?: return false
+        return try {
+            listOfNotNull(headset, a2dp).any { it.getConnectionState(dev) == BluetoothProfile.STATE_CONNECTING }
+        } catch (_: SecurityException) { false }
     }
 
     private fun note(ctx: Context, msg: String) {
@@ -121,6 +129,8 @@ object PodsConnector {
             return
         }
         if (connected(app)) return
+        // Never interrupt a connection that's already on its way.
+        if (connecting(app)) { note(app, "connection already in progress"); return }
         lastAuto = now
         val ok = connect(app)
         note(app, if (ok) "asked Android to connect ($rssi dBm)" else "Android refused to connect ($rssi dBm)")
