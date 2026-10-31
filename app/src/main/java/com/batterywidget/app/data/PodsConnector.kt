@@ -243,8 +243,21 @@ object PodsConnector {
     @Volatile private var watchTries = 0
     @Volatile private var lastWatchReason = ""
 
-    /** The AirPods' Find My signal was heard (they send it all the time, case open or closed). */
-    fun sawFindMy(now: Long) { findMyAt = now }
+    /** Signal at least this strong = the case is about at arm's length or closer. */
+    const val CLOSE_RSSI = -55
+
+    @Volatile var findMyRssi = 0; private set
+    @Volatile var findMyHeardAt = 0L; private set
+
+    /**
+     * The AirPods' Find My signal was heard (they send it all the time, case open or closed).
+     * Only a strong one counts as "close to the phone". 127 = the phone didn't say how strong.
+     */
+    fun sawFindMy(now: Long, rssi: Int) {
+        if (rssi == 127) return
+        findMyRssi = rssi; findMyHeardAt = now
+        if (rssi >= CLOSE_RSSI) findMyAt = now
+    }
 
     private fun screenOn(app: Context) =
         (app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isInteractive
@@ -275,7 +288,7 @@ object PodsConnector {
         )
         if (why == null) {
             watchTries++
-            if (watchTries == 1) Prefs.addEvent(app, "AirPods nearby, not connected: trying every 3 s")
+            if (watchTries == 1) Prefs.addEvent(app, "AirPods close to the phone ($findMyRssi dBm), not connected: trying every 3 s")
             connectTappedAt = now // keeps the widget's connect button hidden meanwhile
             val ok = connect(app)
             note(app, "try $watchTries: ${if (ok) "asked Android" else "refused"}")
@@ -289,7 +302,7 @@ object PodsConnector {
             if (why != lastWatchReason && why != "screen off") lastWatchReason = why
         }
         if (!on) { watching = false; return } // screen off: sleep until it turns on again
-        main.postDelayed({ watchTick(app) }, 3_000)
+        main.postDelayed({ watchTick(app) }, 1_000) // react within a second; tries stay 3 s apart
     }
 
     /** Any strong Apple signal right next to the phone: the AirPods are probably nearby. */

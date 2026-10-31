@@ -418,9 +418,14 @@ private fun debugLine(ctx: android.content.Context): String {
         val secs = (System.currentTimeMillis() - at) / 1000
         "Direct: ${Prefs.aapNote(ctx).ifBlank { "not started" }}\nAndroid: ${Devices.podsSystemBattery(ctx)}\nDebug (${secs}s ago): ${Prefs.debug(ctx)}"
     }
+    val fm = PodsConnector.findMyHeardAt
+    val findMy = if (fm == 0L) "Find My: not heard yet" else
+        "Find My: ${PodsConnector.findMyRssi} dBm, ${(System.currentTimeMillis() - fm) / 1000}s ago " +
+            "(auto-connect at ${PodsConnector.CLOSE_RSSI} or stronger)"
     // What happened lately (lid, connects, scans), newest at the bottom.
     val events = Prefs.events(ctx)
-    return if (events.isEmpty()) heard else "$heard\n\nRecent events:\n${events.joinToString("\n")}"
+    val top = "$findMy\n$heard"
+    return if (events.isEmpty()) top else "$top\n\nRecent events:\n${events.joinToString("\n")}"
 }
 
 private fun listenerStatus(ctx: android.content.Context): String {

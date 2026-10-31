@@ -223,7 +223,7 @@ object AirPods {
             val now = System.currentTimeMillis()
             if (r.rssi in -60..19) PodsConnector.sawNearby(now)
             // Find My signal (type 12). 127 means the phone didn't say how strong; still counts.
-            if ((r.rssi >= -75 || r.rssi == 127) && "12" in types(apple).split(" ")) PodsConnector.sawFindMy(now)
+            if ("12" in types(apple).split(" ")) PodsConnector.sawFindMy(now, r.rssi)
         }
         for (r in results) {
             val data = r.scanRecord?.getManufacturerSpecificData(APPLE) ?: continue
