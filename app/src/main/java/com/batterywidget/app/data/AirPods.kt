@@ -39,12 +39,16 @@ data class PodsReading(
 object AirPods {
     const val APPLE = 76
     private const val FRESH_MS = 5 * 60 * 1000L
+    private const val KEEP_WHILE_CONNECTED_MS = 4 * 60 * 60 * 1000L
     private const val NEAR_RSSI = -82 // ignores other people's AirPods far away
 
     /** The latest reading, if it's recent enough to trust. */
     fun current(ctx: Context): PodsReading? {
         val p = Prefs.loadPods(ctx) ?: return null
-        return if (System.currentTimeMillis() - p.at < FRESH_MS) p else null
+        val age = System.currentTimeMillis() - p.at
+        // AirPods only send their battery now and then (mostly when the case opens), so keep
+        // showing the last reading for as long as they stay connected, like MaterialPods does.
+        return if (age < FRESH_MS || (age < KEEP_WHILE_CONNECTED_MS && audioConnected(ctx))) p else null
     }
 
     /**
