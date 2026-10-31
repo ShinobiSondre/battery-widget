@@ -127,7 +127,7 @@ object AapClient {
         val reading = PodsReading(left, right, case, cl, cr, cc, model, System.currentTimeMillis())
         live = true
         val changed = !reading.sameLevels(old)
-        Prefs.savePods(ctx, reading)
+        Prefs.savePods(ctx, reading, PodsSource.DIRECT)
         note(ctx, "live · L ${left.pct()} R ${right.pct()} case ${case.pct()}")
         if (changed) WidgetUpdater.updateAllThrottled(ctx, force = true)
     }

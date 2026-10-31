@@ -27,6 +27,16 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
+      - name: Run AirPods simulations
+        run: |
+          set +e
+          gradle :app:testDebugUnitTest --no-daemon 2>&1 | tee test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "^e: |FAILED|AssertionError|What went wrong" -A3 test.log | head -40 | while IFS= read -r line; do echo "::error::$line"; done
+          fi
+          exit $status
+
       - name: Unpack signing key
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}

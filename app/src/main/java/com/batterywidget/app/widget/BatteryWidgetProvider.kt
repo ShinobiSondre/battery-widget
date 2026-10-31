@@ -105,6 +105,20 @@ object WidgetUpdater {
 
     @Volatile private var trailing = false
 
+    @Volatile private var redrawDue = 0L
+    @Volatile private var redrawCtx: Context? = null
+    private val redrawTask = Runnable { redrawDue = 0L; redrawCtx?.let { updateAll(it) } }
+
+    /** Redraws at [at] (for example when an AirPods reading should disappear). */
+    fun redrawAt(ctx: Context, at: Long) {
+        redrawCtx = ctx.applicationContext
+        val now = System.currentTimeMillis()
+        if (redrawDue in (now + 1)..at) return // an earlier redraw is already on its way
+        main.removeCallbacks(redrawTask)
+        redrawDue = at
+        main.postDelayed(redrawTask, (at - now).coerceAtLeast(100))
+    }
+
     /**
      * Redraws now, or, if it just redrew, once more 2 seconds later, so a change is never lost
      * and the widget isn't redrawn many times a second.

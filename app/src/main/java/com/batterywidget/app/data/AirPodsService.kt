@@ -8,6 +8,7 @@ import android.app.Service
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothManager
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
@@ -54,9 +55,14 @@ class AirPodsService : Service() {
             when (intent.action) {
                 BluetoothAdapter.ACTION_STATE_CHANGED -> {
                     val on = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) == BluetoothAdapter.STATE_ON
-                    if (on) startScan() else { scanning = false }
+                    if (on) {
+                        startScan()
+                        AirPods.startSystemScan(ctx, force = true) // Bluetooth off removed it
+                    } else { scanning = false; Prefs.setSystemScanAt(ctx, 0L) }
                 }
-                Intent.ACTION_SCREEN_ON -> restartScan() // some phones pause scans while the screen is off
+                // Some phones pause scans while the screen is off: restart, but only if it looks
+                // stuck, so screen-ons don't use up Android's 5-starts-in-30-seconds limit.
+                Intent.ACTION_SCREEN_ON -> if (quietFor() > 60_000) restartScan("screen on, scan was quiet")
                 // Phone battery and charger: redraw right away when something visible changes.
                 Intent.ACTION_BATTERY_CHANGED -> {
                     val level = intent.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1)
@@ -72,6 +78,13 @@ class AirPodsService : Service() {
                     WidgetUpdater.updateAllThrottled(ctx, force = true)
                 // Headset or audio link finished connecting: redraw now (hides the connect button).
                 HEADSET_STATE, A2DP_STATE -> {
+                    val state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1)
+                    val what = if (intent.action == HEADSET_STATE) "call audio" else "music audio"
+                    when (state) {
+                        BluetoothProfile.STATE_CONNECTED -> Prefs.addEvent(ctx, "$what connected")
+                        BluetoothProfile.STATE_CONNECTING -> Prefs.addEvent(ctx, "$what connecting…")
+                        BluetoothProfile.STATE_DISCONNECTED -> Prefs.addEvent(ctx, "$what disconnected")
+                    }
                     // Audio is up: open the AirPods' own channel for exact battery.
                     if (PodsConnector.soundConnected(ctx)) handler.postDelayed({ AapClient.start(ctx) }, 1_000)
                     WidgetUpdater.updateAllThrottled(ctx, force = true)
@@ -166,9 +179,16 @@ class AirPodsService : Service() {
             .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
             .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
             .build()
+        if (!ScanGate.tryStart(this, "scan")) {
+            // Over Android's limit: a start now would silently get nothing. Start once it's allowed.
+            handler.removeCallbacks(retryStart)
+            handler.postDelayed(retryStart, ScanGate.waitMs(this) + 500)
+            return
+        }
         try {
             if (scanning) scanner.stopScan(callback)
             scanner.startScan(filters, settings, callback)
+            lastStart = System.currentTimeMillis()
             Prefs.setListenerNote(this, if (hwFilter) "Listening (Apple filter)" else "Listening (all signals)")
             scanning = true
         } catch (e: Exception) {
@@ -185,9 +205,22 @@ class AirPodsService : Service() {
         } catch (_: Exception) { }
     }
 
-    private fun restartScan() { stopScan(); startScan() }
+    private val retryStart = Runnable { startScan() }
+    private var lastStart = 0L
+    @Volatile private var lastResult = System.currentTimeMillis()
+
+    /** How long since the scan last heard anything at all. */
+    private fun quietFor() = System.currentTimeMillis() - maxOf(lastResult, lastStart)
+
+    /** Restarts the scan, unless that would go over Android's start limit (then keeps the old one). */
+    private fun restartScan(why: String = "") {
+        if (ScanGate.waitMs(this) > 0) { if (!scanning) startScan(); return }
+        if (why.isNotBlank()) Prefs.addEvent(this, "scan restarted: $why")
+        stopScan(); startScan()
+    }
 
     private fun heard(results: List<ScanResult>) {
+        lastResult = System.currentTimeMillis()
         if (AirPods.onResults(this, results)) updateNotice()
     }
 
@@ -195,7 +228,17 @@ class AirPodsService : Service() {
     private val refreshNotice = object : Runnable {
         override fun run() {
             updateNotice()
-            if (System.currentTimeMillis() - lastRestart > 20 * 60_000L) { lastRestart = System.currentTimeMillis(); restartScan() }
+            // Readings that should have gone away (e.g. AirPods put away) leave the widget.
+            WidgetUpdater.updateAllThrottled(this@AirPodsService)
+            val now = System.currentTimeMillis()
+            when {
+                // Android slows down scans older than 30 minutes; refresh before that.
+                now - lastRestart > 20 * 60_000L -> { lastRestart = now; restartScan() }
+                // Heard nothing at all for 3 minutes: it was probably stopped. Start it again.
+                quietFor() > 3 * 60_000L -> { lastRestart = now; restartScan("heard nothing for 3 min") }
+                !scanning -> startScan()
+            }
+            AirPods.startSystemScan(this@AirPodsService) // only starts it if it isn't running
             handler.postDelayed(this, 60_000)
         }
     }

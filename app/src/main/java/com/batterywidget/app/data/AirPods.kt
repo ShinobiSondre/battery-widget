@@ -46,18 +46,22 @@ data class PodsReading(
  */
 object AirPods {
     const val APPLE = 76
-    private const val FRESH_MS = 5 * 60 * 1000L
-    private const val KEEP_WHILE_CONNECTED_MS = 4 * 60 * 60 * 1000L
     private const val NEAR_RSSI = -82 // ignores other people's AirPods far away
 
-    /** The latest reading, if it's recent enough to trust. */
+    /**
+     * The latest reading, if it should be on the widget now. Readings from the AirPods' own
+     * channel only while they're connected; broadcasts heard while they aren't connected (case
+     * open next to the phone) for a minute. After that the widget goes back to the phone alone.
+     */
     fun current(ctx: Context): PodsReading? {
         val p = Prefs.loadPods(ctx) ?: return null
-        // Only fresh broadcasts. Newer AirPods (like Pro 3) stop broadcasting their battery while
-        // they're connected; then the battery Android gets from the AirPods is shown instead.
-        // While the direct channel is open, its reading is always current.
-        if (AapClient.live) return p
-        return if (System.currentTimeMillis() - p.at < FRESH_MS) p else null
+        val until = PodsVisibility.shownUntil(
+            System.currentTimeMillis(), p.at, Prefs.podsSource(ctx),
+            connected = PodsConnector.connected(ctx), directLive = AapClient.live
+        ) ?: return null
+        // Redraw the moment it should disappear, even if nothing else happens.
+        if (until != Long.MAX_VALUE) WidgetUpdater.redrawAt(ctx, until + 500)
+        return p
     }
 
     /**
@@ -71,6 +75,7 @@ object AirPods {
         val name = try { d.name } catch (_: SecurityException) { null } ?: return
         if (!name.contains("pods", ignoreCase = true)) return
         val connected = intent.action == android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED
+        if (Prefs.podsLinked(ctx) != connected) Prefs.addEvent(ctx, if (connected) "AirPods linked" else "AirPods unlinked")
         Prefs.setPodsLinked(ctx, connected)
         if (connected) Prefs.setPodsAddress(ctx, d.address) else AapClient.stop()
     }
@@ -161,8 +166,13 @@ object AirPods {
      * Hands the listening to Android's own Bluetooth system. It keeps going even when Samsung
      * or Android closes the app to save battery, and wakes the app only when AirPods speak.
      */
-    fun startSystemScan(ctx: Context) {
+    fun startSystemScan(ctx: Context, force: Boolean = false) {
         if (!Perms.hasScan(ctx)) return
+        // It keeps running on its own once started, so don't restart it on every little event:
+        // each start counts toward Android's limit of 5 scan starts in 30 seconds.
+        val age = System.currentTimeMillis() - Prefs.systemScanAt(ctx)
+        if (!force && age in 0 until 15 * 60_000L) return
+        if (!ScanGate.tryStart(ctx, "background scan")) return
         try {
             val a = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
             val scanner = (if (a != null && a.isEnabled) a.bluetoothLeScanner else null) ?: return
@@ -180,6 +190,7 @@ object AirPods {
             val pi = systemScanIntent(ctx)
             scanner.stopScan(pi)
             scanner.startScan(listOf(filter), settings, pi)
+            Prefs.setSystemScanAt(ctx, System.currentTimeMillis())
         } catch (_: Exception) { }
     }
 
@@ -189,6 +200,7 @@ object AirPods {
             val a = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
             a?.bluetoothLeScanner?.stopScan(systemScanIntent(ctx))
         } catch (_: Exception) { }
+        Prefs.setSystemScanAt(ctx, 0L)
     }
 
     private class Tally { var count = 0; var best = -999; var hex = "" }
@@ -219,22 +231,55 @@ object AirPods {
                 "type $t ×${e.count}, best ${e.best} dBm: ${e.hex}"
             })
         }
+        // Any AirPods status message counts for auto-connect, even one without readable battery:
+        // all it needs to know is that the AirPods are here and whether the lid is open.
+        val frames = results
+            .filter { it.rssi < 20 } // 127 means "strength unknown"
+            .mapNotNull { r -> r.scanRecord?.getManufacturerSpecificData(APPLE)?.let { PodsLogic.proximity(it) }?.let { r to it } }
+        frames.maxByOrNull { it.first.rssi }?.let { (r, f) ->
+            Prefs.setLastHeard(ctx, now, r.rssi)
+            PodsConnector.autoConnect(ctx, r.rssi, f.lid)
+        }
         val best = results
-            .filter { it.rssi >= NEAR_RSSI && it.rssi < 20 } // 127 means "strength unknown"
+            .filter { it.rssi >= NEAR_RSSI && it.rssi < 20 }
             .mapNotNull { r -> r.scanRecord?.getManufacturerSpecificData(APPLE)?.let { parse(it)?.let { p -> r to p } } }
             .maxByOrNull { it.first.rssi } ?: return false
-        val (result, reading) = best
-        PodsConnector.autoConnect(ctx, result.rssi)
-        Prefs.setLastHeard(ctx, reading.at, result.rssi)
+        val reading = best.second
+        // The AirPods' own channel is exact; don't overwrite it with a 10%-step broadcast.
+        if (AapClient.live) return false
         val old = Prefs.loadPods(ctx)
         val changed = !reading.sameLevels(old)
-        val stale = old == null || reading.at - old.at > 30_000
+        val stale = old == null || reading.at - old.at > 30_000 || Prefs.podsSource(ctx) != PodsSource.BROADCAST
         if (!changed && !stale) return false
-        val wasHidden = old == null || reading.at - old.at > FRESH_MS
-        Prefs.savePods(ctx, reading)
+        val wasHidden = current(ctx) == null
+        Prefs.savePods(ctx, reading, PodsSource.BROADCAST)
         // AirPods change in 10% steps, so every change is worth showing straight away.
         if (changed || wasHidden) WidgetUpdater.updateAllThrottled(ctx, force = true)
         return changed || wasHidden
+    }
+}
+
+/**
+ * Every Bluetooth scan start in the app goes through here. Android silently stops giving an app
+ * any results if it starts scans more than 5 times in 30 seconds, which is easy to hit when the
+ * screen turns on, AirPods connect and the widget refreshes all at once.
+ */
+object ScanGate {
+    private val budget = ScanBudget()
+
+    /** How long until a scan may start (0 = now). */
+    @Synchronized
+    fun waitMs(ctx: Context): Long = budget.waitMs(System.currentTimeMillis(), Prefs.scanStarts(ctx))
+
+    /** Records a start and returns true if one is allowed right now. */
+    @Synchronized
+    fun tryStart(ctx: Context, what: String): Boolean {
+        val now = System.currentTimeMillis()
+        val starts = Prefs.scanStarts(ctx).filter { now - it in 0 until 60_000L }
+        val wait = budget.waitMs(now, starts)
+        if (wait > 0) { Prefs.addEvent(ctx, "$what held back ${wait / 1000}s (Android scan limit)"); return false }
+        Prefs.setScanStarts(ctx, starts + now)
+        return true
     }
 }
 

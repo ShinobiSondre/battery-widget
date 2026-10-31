@@ -15,7 +15,8 @@ object Prefs {
         runCatching { WidgetStyle.valueOf(sp(c).getString("style", null) ?: "BARS") }.getOrDefault(WidgetStyle.BARS)
     fun setStyle(c: Context, s: WidgetStyle) = sp(c).edit().putString("style", s.name).apply()
 
-    fun savePods(c: Context, p: PodsReading) = sp(c).edit()
+    fun savePods(c: Context, p: PodsReading, source: PodsSource) = sp(c).edit()
+        .putString("pods_src", source.name)
         .putInt("pods_l", p.left).putInt("pods_r", p.right).putInt("pods_c", p.case)
         .putBoolean("pods_cl", p.chargingLeft).putBoolean("pods_cr", p.chargingRight)
         .putBoolean("pods_cc", p.chargingCase).putString("pods_model", p.model)
@@ -31,6 +32,28 @@ object Prefs {
             s.getString("pods_model", "AirPods") ?: "AirPods", at
         )
     }
+
+    /** Where the saved AirPods reading came from (broadcast, or the AirPods' own channel). */
+    fun podsSource(c: Context): PodsSource =
+        runCatching { PodsSource.valueOf(sp(c).getString("pods_src", null) ?: "BROADCAST") }.getOrDefault(PodsSource.BROADCAST)
+
+    /** Recent auto-connect and Bluetooth events, newest last, shown in the app to find problems. */
+    fun events(c: Context): List<String> = (sp(c).getString("events", "") ?: "").split("\n").filter { it.isNotBlank() }
+    @Synchronized
+    fun addEvent(c: Context, msg: String) {
+        val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+        val list = (events(c) + "$t $msg").takeLast(12)
+        sp(c).edit().putString("events", list.joinToString("\n")).apply()
+    }
+
+    /** When Bluetooth scans were started lately (Android ignores more than 5 in 30 seconds). */
+    fun scanStarts(c: Context): List<Long> =
+        (sp(c).getString("scan_starts", "") ?: "").split(",").mapNotNull { it.toLongOrNull() }
+    fun setScanStarts(c: Context, v: List<Long>) = sp(c).edit().putString("scan_starts", v.joinToString(",")).commit()
+
+    /** When the background (system) AirPods scan was last started; 0 = needs starting. */
+    fun systemScanAt(c: Context) = sp(c).getLong("sys_scan_at", 0L)
+    fun setSystemScanAt(c: Context, v: Long) = sp(c).edit().putLong("sys_scan_at", v).apply()
 
     /** Keep listening for AirPods in the background (with a small ongoing notification). */
     fun alwaysListen(c: Context) = sp(c).getBoolean("always_listen", true)

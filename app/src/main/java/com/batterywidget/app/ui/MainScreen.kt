@@ -407,9 +407,15 @@ private fun batteryUnrestricted(ctx: android.content.Context): Boolean {
 
 private fun debugLine(ctx: android.content.Context): String {
     val at = Prefs.debugAt(ctx)
-    if (at == 0L) return if (AirPodsService.running) "Debug: no Apple Bluetooth signals received yet" else ""
-    val secs = (System.currentTimeMillis() - at) / 1000
-    return "Direct: ${Prefs.aapNote(ctx).ifBlank { "not started" }}\nAndroid: ${Devices.podsSystemBattery(ctx)}\nDebug (${secs}s ago): ${Prefs.debug(ctx)}"
+    val heard = if (at == 0L) {
+        if (AirPodsService.running) "Debug: no Apple Bluetooth signals received yet" else ""
+    } else {
+        val secs = (System.currentTimeMillis() - at) / 1000
+        "Direct: ${Prefs.aapNote(ctx).ifBlank { "not started" }}\nAndroid: ${Devices.podsSystemBattery(ctx)}\nDebug (${secs}s ago): ${Prefs.debug(ctx)}"
+    }
+    // What happened lately (lid, connects, scans), newest at the bottom.
+    val events = Prefs.events(ctx)
+    return if (events.isEmpty()) heard else "$heard\n\nRecent events:\n${events.joinToString("\n")}"
 }
 
 private fun listenerStatus(ctx: android.content.Context): String {

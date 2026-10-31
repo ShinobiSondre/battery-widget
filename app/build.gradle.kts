@@ -60,4 +60,6 @@ dependencies {
     // Lets the app open the AirPods' own data channel (same approach as CAPod / LibrePods)
     implementation("org.lsposed.hiddenapibypass:hiddenapibypass:6.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
+    // Simulations of the AirPods logic (lid, auto-connect, widget, scan limit), run before every release
+    testImplementation("junit:junit:4.13.2")
 }
