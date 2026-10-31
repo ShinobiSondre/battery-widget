@@ -116,23 +116,20 @@ class AirPodsService : Service() {
         // Phones that can't would otherwise return nothing at all, so there we listen to
         // everything and pick out the AirPods messages in code.
         val hwFilter = try { adapter.isOffloadedFilteringSupported } catch (_: Exception) { false }
+        // Any Apple broadcast (the AirPods message is picked out in code).
         val filters = if (hwFilter) listOf(
-            ScanFilter.Builder().setManufacturerData(
-                AirPods.APPLE,
-                ByteArray(27).also { it[0] = 0x07; it[1] = 0x19 },
-                ByteArray(27).also { it[0] = 1; it[1] = 1 }
-            ).build()
+            ScanFilter.Builder().setManufacturerData(AirPods.APPLE, ByteArray(0)).build()
         ) else emptyList()
         val settings = ScanSettings.Builder()
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
-            .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
-            .setMatchMode(ScanSettings.MATCH_MODE_STICKY)
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
             .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
             .build()
         try {
             if (scanning) scanner.stopScan(callback)
             scanner.startScan(filters, settings, callback)
-            Prefs.setListenerNote(this, if (hwFilter) "Listening (chip filter)" else "Listening (all signals)")
+            Prefs.setListenerNote(this, if (hwFilter) "Listening (Apple filter)" else "Listening (all signals)")
             scanning = true
         } catch (e: Exception) {
             Prefs.setListenerNote(this, "Couldn't scan: ${e.javaClass.simpleName}")

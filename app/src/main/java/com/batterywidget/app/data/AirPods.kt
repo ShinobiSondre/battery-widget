@@ -116,19 +116,33 @@ object AirPods {
     /** Makes sure the always-on listener is running (when it's switched on). */
     fun sync(ctx: Context) = AirPodsService.ensure(ctx)
 
+    private class Tally { var count = 0; var best = -999; var hex = "" }
+    private val tally = HashMap<String, Tally>()
+    private var tallyStart = 0L
+    private var lastDebugSave = 0L
+
     /** Handles AirPods messages. Returns true when the battery changed. */
     fun onResults(ctx: Context, results: List<ScanResult>): Boolean {
-        // Debug line: remember the latest Apple broadcast with a status message in it, if any.
+        // Debug line: a tally of Apple message types heard in the last minute, with the
+        // strongest signal for each (AirPods right next to the phone are about -30 to -55).
+        val now = System.currentTimeMillis()
+        if (now - tallyStart > 60_000) { tally.clear(); tallyStart = now }
         for (r in results) {
             val data = r.scanRecord?.getManufacturerSpecificData(APPLE) ?: continue
-            val t = types(data)
-            val since = System.currentTimeMillis() - Prefs.debugAt(ctx)
-            if ("07" in t.split(" ")) {
-                if (since < 5_000) continue
-                Prefs.setDebug(ctx, "07 heard ${r.rssi} dBm · " + data.joinToString("") { "%02X".format(it.toInt() and 0xFF) })
-            } else if (since > 60_000) {
-                Prefs.setDebug(ctx, "Apple signals only (types $t)")
+            for (t in types(data).split(" ").filter { it.isNotBlank() }) {
+                val e = tally.getOrPut(t) { Tally() }
+                e.count++
+                if (r.rssi > e.best) {
+                    e.best = r.rssi
+                    e.hex = data.joinToString("") { "%02X".format(it.toInt() and 0xFF) }.take(40)
+                }
             }
+        }
+        if (tally.isNotEmpty() && now - lastDebugSave > 3_000) {
+            lastDebugSave = now
+            Prefs.setDebug(ctx, tally.entries.sortedByDescending { it.value.best }.joinToString("\n") { (t, e) ->
+                "type $t ×${e.count}, best ${e.best} dBm: ${e.hex}"
+            })
         }
         val best = results
             .filter { it.rssi >= NEAR_RSSI }
