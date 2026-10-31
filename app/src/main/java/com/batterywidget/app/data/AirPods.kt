@@ -53,11 +53,9 @@ object AirPods {
     /** The latest reading, if it's recent enough to trust. */
     fun current(ctx: Context): PodsReading? {
         val p = Prefs.loadPods(ctx) ?: return null
-        val age = System.currentTimeMillis() - p.at
-        // AirPods only send their battery now and then (mostly when the case opens), so keep
-        // showing the last reading for as long as they stay connected, like MaterialPods does.
-        val linked = Prefs.podsLinked(ctx) || audioConnected(ctx)
-        return if (age < FRESH_MS || (age < KEEP_WHILE_CONNECTED_MS && linked)) p else null
+        // Only fresh broadcasts. Newer AirPods (like Pro 3) stop broadcasting their battery while
+        // they're connected; then the battery Android gets from the AirPods is shown instead.
+        return if (System.currentTimeMillis() - p.at < FRESH_MS) p else null
     }
 
     /**

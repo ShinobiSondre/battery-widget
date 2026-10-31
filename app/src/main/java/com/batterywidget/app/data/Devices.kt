@@ -94,13 +94,24 @@ object Devices {
                     // Battery Android announced recently (heard by the AirPods listener).
                     val (cached, at) = Prefs.deviceBattery(ctx, d.address)
                     val recent = cached >= 0 && now - at < 30 * 60_000L
-                    val connected = when (isConnected(d)) { true -> true; false -> false; null -> recent }
-                    if (!connected) return@mapNotNull null
                     val alias = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) d.alias else null
                     val name = alias ?: d.name ?: "Device"
-                    if (skipPods && name.contains("pods", ignoreCase = true)) return@mapNotNull null
-                    val level = batteryLevel(d).takeIf { it >= 0 } ?: if (recent) cached else -1
-                    if (level < 0) null else Item(name, level.coerceIn(0, 100), iconFor(d, name))
+                    val isPods = name.contains("pods", ignoreCase = true)
+                    val connected = when (isConnected(d)) {
+                        true -> true
+                        false -> false
+                        null -> recent || (isPods && Prefs.podsLinked(ctx) && Prefs.podsAddress(ctx) == d.address)
+                    }
+                    if (!connected) return@mapNotNull null
+                    if (skipPods && isPods) return@mapNotNull null
+                    // The battery the device itself reports to Android (what Samsung shows in
+                    // Bluetooth settings); while connected, the last one it announced still counts.
+                    val level = batteryLevel(d).takeIf { it >= 0 } ?: if (cached >= 0) cached else -1
+                    when {
+                        level >= 0 -> Item(name, level.coerceIn(0, 100), iconFor(d, name))
+                        isPods -> Item(name, -1, IconKind.EARBUDS) // connected, battery not known yet
+                        else -> null
+                    }
                 }
                 .sortedBy { it.name }
         } catch (_: SecurityException) {
@@ -110,6 +121,18 @@ object Devices {
 
     // These two methods exist on every Android phone but aren't in the public SDK, so they're
     // looked up by name. If a phone ever removes them, the device is simply left out.
+    /** For the debug line: what Android itself says about the AirPods' battery. */
+    fun podsSystemBattery(ctx: Context): String {
+        if (!Perms.hasConnect(ctx)) return "no Bluetooth permission"
+        return try {
+            val adapter = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter ?: return "Bluetooth off"
+            val d = adapter.bondedDevices.orEmpty().firstOrNull { (it.name ?: "").contains("pods", true) } ?: return "no paired AirPods"
+            val (cached, at) = Prefs.deviceBattery(ctx, d.address)
+            val ago = if (at > 0) "${(System.currentTimeMillis() - at) / 60_000} min ago" else "never"
+            "connected=${isConnected(d)}, battery=${batteryLevel(d)}, announced=$cached ($ago)"
+        } catch (e: Exception) { e.javaClass.simpleName }
+    }
+
     private fun isConnected(d: BluetoothDevice): Boolean? = try {
         d.javaClass.getMethod("isConnected").invoke(d) as Boolean
     } catch (_: Exception) { null }
