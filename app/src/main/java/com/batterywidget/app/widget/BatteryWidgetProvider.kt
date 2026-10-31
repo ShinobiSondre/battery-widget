@@ -62,6 +62,7 @@ class BluetoothEventReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
         // Stay alive a moment so a newly connected device's spotlight can fade out.
         val pending = goAsync()
+        AirPods.onConnectionChange(ctx, intent)
         AirPods.sync(ctx)
         val fresh = intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
         WidgetUpdater.updateAll(ctx, full = fresh)

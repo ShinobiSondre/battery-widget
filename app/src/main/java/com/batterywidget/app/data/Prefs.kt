@@ -70,6 +70,10 @@ object Prefs {
     fun widgetDrawn(c: Context, id: Int) = sp(c).getBoolean("w_drawn_$id", false)
     fun setWidgetDrawn(c: Context, id: Int) = sp(c).edit().putBoolean("w_drawn_$id", true).apply()
 
+    /** True while AirPods are connected (set the moment Bluetooth connects or disconnects). */
+    fun podsLinked(c: Context) = sp(c).getBoolean("pods_linked", false)
+    fun setPodsLinked(c: Context, v: Boolean) = sp(c).edit().putBoolean("pods_linked", v).commit()
+
     fun lastWidgetDraw(c: Context) = sp(c).getLong("last_draw", 0L)
     fun setLastWidgetDraw(c: Context, t: Long) = sp(c).edit().putLong("last_draw", t).apply()
 }

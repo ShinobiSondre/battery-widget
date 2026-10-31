@@ -70,6 +70,7 @@ class AirPodsService : Service() {
                 Intent.ACTION_POWER_CONNECTED, Intent.ACTION_POWER_DISCONNECTED ->
                     WidgetUpdater.updateAllThrottled(ctx, force = true)
                 BluetoothDevice.ACTION_ACL_CONNECTED, BluetoothDevice.ACTION_ACL_DISCONNECTED -> {
+                    AirPods.onConnectionChange(ctx, intent)
                     WidgetUpdater.updateAllThrottled(ctx, force = true)
                     // Battery levels arrive a few seconds after connecting.
                     handler.postDelayed({ WidgetUpdater.updateAllThrottled(ctx, force = true) }, 2_500)

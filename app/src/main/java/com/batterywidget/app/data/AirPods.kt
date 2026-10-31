@@ -56,7 +56,21 @@ object AirPods {
         val age = System.currentTimeMillis() - p.at
         // AirPods only send their battery now and then (mostly when the case opens), so keep
         // showing the last reading for as long as they stay connected, like MaterialPods does.
-        return if (age < FRESH_MS || (age < KEEP_WHILE_CONNECTED_MS && audioConnected(ctx))) p else null
+        val linked = Prefs.podsLinked(ctx) || audioConnected(ctx)
+        return if (age < FRESH_MS || (age < KEEP_WHILE_CONNECTED_MS && linked)) p else null
+    }
+
+    /**
+     * Called the instant any Bluetooth device connects or disconnects. When it's AirPods, the
+     * widget shows them right away with their last known battery, instead of waiting for the
+     * next battery broadcast or for the audio link to finish setting up.
+     */
+    fun onConnectionChange(ctx: Context, intent: Intent) {
+        val d = IntentCompat.getParcelableExtra(intent, android.bluetooth.BluetoothDevice.EXTRA_DEVICE, android.bluetooth.BluetoothDevice::class.java)
+            ?: return
+        val name = try { d.name } catch (_: SecurityException) { null } ?: return
+        if (!name.contains("pods", ignoreCase = true)) return
+        Prefs.setPodsLinked(ctx, intent.action == android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED)
     }
 
     /**
