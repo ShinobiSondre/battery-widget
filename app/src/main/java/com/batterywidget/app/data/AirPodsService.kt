@@ -62,6 +62,7 @@ class AirPodsService : Service() {
                 }
                 // Some phones pause scans while the screen is off: restart, but only if it looks
                 // stuck, so screen-ons don't use up Android's 5-starts-in-30-seconds limit.
+                Intent.ACTION_USER_PRESENT -> PodsConnector.onUnlock(ctx)
                 Intent.ACTION_SCREEN_ON -> if (quietFor() > 60_000) restartScan("screen on, scan was quiet")
                 // Phone battery and charger: redraw right away when something visible changes.
                 Intent.ACTION_BATTERY_CHANGED -> {
@@ -122,6 +123,7 @@ class AirPodsService : Service() {
         val f = IntentFilter().apply {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
             addAction(BATTERY_LEVEL_CHANGED)
             addAction(Intent.ACTION_BATTERY_CHANGED)
             addAction(Intent.ACTION_POWER_CONNECTED)

@@ -178,6 +178,77 @@ object PodsConnector {
     @Volatile private var lastLid: Lid? = null
     @Volatile private var lastSkip = ""
 
+    private val window = RetryWindow()
+    private val pause = DisconnectPause()
+    @Volatile private var lastSeenAt = 0L
+    @Volatile private var ticking = false
+    @Volatile private var triesThisWindow = 0
+
+    /**
+     * Starts the burst of attempts (every 3 s for 30 s) unless the AirPods are already
+     * connected, auto-connect is off, or they were just disconnected on purpose.
+     */
+    private fun startWindow(app: Context, why: String, explicit: Boolean = false) {
+        if (!Prefs.autoConnect(app) || pairedPods(app) == null) return
+        if (explicit) pause.clear()
+        if (pause.paused) { Prefs.addEvent(app, "auto-connect: waiting (you disconnected them), skipped $why"); return }
+        if (soundConnected(app)) return
+        if (window.start(System.currentTimeMillis(), why)) {
+            triesThisWindow = 0
+            Prefs.addEvent(app, "auto-connect: $why, trying every 3 s for 30 s")
+        }
+        if (!ticking) { ticking = true; tick(app) }
+    }
+
+    private fun tick(app: Context) {
+        val step = window.tick(System.currentTimeMillis(), Prefs.autoConnect(app), soundConnected(app), connecting(app))
+        when (step) {
+            is RetryWindow.Step.Connect -> {
+                triesThisWindow++
+                val n = triesThisWindow
+                note(app, "${window.reason}: try $n…")
+                if (n == 1) {
+                    pressConnect(app) { ok -> note(app, "${window.reason}: try 1 ${if (ok) "asked Android" else "refused"}") }
+                } else {
+                    connectTappedAt = System.currentTimeMillis() // keeps the widget button hidden meanwhile
+                    prepare(app)
+                    val ok = connect(app)
+                    note(app, "${window.reason}: try $n ${if (ok) "asked Android" else "refused"}")
+                }
+            }
+            is RetryWindow.Step.Stop -> {
+                ticking = false
+                Prefs.addEvent(app, "auto-connect: stopped (${step.reason}) after $triesThisWindow tries")
+                note(app, "stopped: ${step.reason}")
+                WidgetUpdater.updateAll(app)
+                return
+            }
+            RetryWindow.Step.Wait -> Unit
+        }
+        main.postDelayed({ tick(app) }, 3_000)
+    }
+
+    /** The AirPods dropped their link: stop trying, and don't grab them back until the case closes. */
+    fun onUnlinked(ctx: Context) {
+        val app = ctx.applicationContext
+        if (window.active) window.stop()
+        pause.onDisconnected()
+        Prefs.addEvent(app, "auto-connect paused until the case closes or the AirPods reach out")
+    }
+
+    /** Any strong Apple signal right next to the phone: the AirPods are probably nearby. */
+    fun sawNearby(now: Long) { lastSeenAt = now }
+
+    /** Phone unlocked: if the AirPods were nearby a moment ago, get them ready. */
+    fun onUnlock(ctx: Context) {
+        if (System.currentTimeMillis() - lastSeenAt < 120_000) startWindow(ctx.applicationContext, "phone unlocked, AirPods nearby")
+    }
+
+    /** Widget tapped: if the AirPods are nearby, connect them. */
+    fun onWidgetTap(ctx: Context) {
+        if (System.currentTimeMillis() - lastSeenAt < 120_000) startWindow(ctx.applicationContext, "widget tapped", explicit = true)
+    }
+
     /**
      * Called for every AirPods status message heard. [AutoConnectPolicy] decides (like CAPod):
      * connect the moment the case lid opens, try once more 5 s later, then every 20 s while
@@ -190,6 +261,9 @@ object PodsConnector {
             Prefs.addEvent(app, "$what ($rssi dBm)")
             lastLid = lid
         }
+        val now = System.currentTimeMillis()
+        pause.onFrame(now, lid)
+        if (rssi >= -80) lastSeenAt = now
         if (pairedPods(app) == null) { note(app, "skipped: no paired AirPods found"); return }
         if (headset == null && a2dp == null) prepare(app) // ready for the next message
         val d = policy.onFrame(
@@ -203,11 +277,13 @@ object PodsConnector {
             }
             is AutoConnectPolicy.Decision.Connect -> {
                 lastSkip = ""
-                note(app, "${d.reason} ($rssi dBm), connecting…")
-                pressConnect(app) { ok ->
-                    val msg = "${d.reason}: " + if (ok) "asked Android to connect" else "Android refused to connect"
-                    note(app, "$msg ($rssi dBm)")
-                    Prefs.addEvent(app, msg)
+                if (d.reason.startsWith("retry")) {
+                    // The slow background retry: one attempt, never stretching the 30 s burst.
+                    if (!window.active && !pause.paused) pressConnect(app) { ok ->
+                        Prefs.addEvent(app, "${d.reason}: " + if (ok) "asked Android to connect" else "Android refused to connect")
+                    }
+                } else {
+                    startWindow(app, "${d.reason} ($rssi dBm)")
                 }
             }
         }
@@ -220,6 +296,8 @@ object PodsConnector {
      */
     fun onLinked(ctx: Context) {
         val app = ctx.applicationContext
+        lastSeenAt = System.currentTimeMillis()
+        pause.clear() // the AirPods reached out themselves: they're wanted
         prepare(app)
         fun attempt(retry: Boolean) {
             if (retry && !Prefs.podsLinked(app)) return // they already gave up
@@ -230,11 +308,7 @@ object PodsConnector {
             )
             when (d) {
                 is AutoConnectPolicy.Decision.Skip -> if (!retry) Prefs.addEvent(app, "auto-connect: ${d.reason}")
-                is AutoConnectPolicy.Decision.Connect -> pressConnect(app) { ok ->
-                    val msg = "${d.reason}: " + if (ok) "asked Android to connect" else "Android refused to connect"
-                    note(app, msg); Prefs.addEvent(app, msg)
-                    if (!retry) main.postDelayed({ attempt(true) }, 1_500)
-                }
+                is AutoConnectPolicy.Decision.Connect -> startWindow(app, d.reason, explicit = true)
             }
         }
         // The headset service may need a moment to open after the app was asleep.

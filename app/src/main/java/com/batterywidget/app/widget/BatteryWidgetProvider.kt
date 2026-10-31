@@ -50,6 +50,7 @@ class BatteryWidgetProvider : AppWidgetProvider() {
     override fun onReceive(ctx: Context, intent: Intent) {
         if (intent.action == WidgetUpdater.ACTION_REFRESH) {
             AirPods.sync(ctx)
+            PodsConnector.onWidgetTap(ctx)
             WidgetUpdater.updateAll(ctx)
             WidgetUpdater.refreshSoon(ctx) // AirPods readings arrive a few seconds later
             return

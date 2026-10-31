@@ -81,6 +81,7 @@ object AirPods {
         if (connected) Prefs.setPodsAddress(ctx, d.address) else AapClient.stop()
         // Lid opened: the AirPods reach out to the phone on their own. Finish the job.
         if (connected && changed) PodsConnector.onLinked(ctx)
+        if (!connected && changed) PodsConnector.onUnlinked(ctx)
     }
 
     /**
@@ -217,6 +218,9 @@ object AirPods {
         // strongest signal for each (AirPods right next to the phone are about -30 to -55).
         val now = System.currentTimeMillis()
         if (now - tallyStart > 60_000) { tally.clear(); tallyStart = now }
+        for (r in results) {
+            if (r.rssi in -60..19 && r.scanRecord?.getManufacturerSpecificData(APPLE) != null) PodsConnector.sawNearby(System.currentTimeMillis())
+        }
         for (r in results) {
             val data = r.scanRecord?.getManufacturerSpecificData(APPLE) ?: continue
             for (t in types(data).split(" ").filter { it.isNotBlank() }) {

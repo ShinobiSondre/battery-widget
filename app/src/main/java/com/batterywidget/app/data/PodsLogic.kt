@@ -171,3 +171,67 @@ class ScanBudget(private val max: Int = 4, private val windowMs: Long = 30_000) 
         return recent[recent.size - max] + windowMs - now
     }
 }
+
+/**
+ * A short burst of connect attempts: once something suggests you're about to use the AirPods
+ * (case opened, they linked up, phone unlocked with them nearby), try every [intervalMs] for
+ * [lengthMs]. Stops the moment they're connected. Never asks while Android is mid-connect, so it
+ * can't interrupt a connection that's on its way.
+ */
+class RetryWindow(private val intervalMs: Long = 3_000, private val lengthMs: Long = 30_000) {
+    sealed class Step {
+        object Connect : Step()
+        object Wait : Step()
+        data class Stop(val reason: String) : Step()
+    }
+
+    private var until = 0L
+    private var lastTry = 0L
+    var reason = ""; private set
+
+    val active get() = until > 0L
+
+    /** Opens the window (or keeps an open one going). Returns true if it was newly opened. */
+    fun start(now: Long, why: String): Boolean {
+        val fresh = !active
+        if (fresh) { reason = why; lastTry = 0L }
+        until = now + lengthMs
+        return fresh
+    }
+
+    fun stop() { until = 0L }
+
+    /** Called every [intervalMs] while active. */
+    fun tick(now: Long, enabled: Boolean, connected: Boolean, connecting: Boolean): Step {
+        if (!active) return Step.Stop("not active")
+        if (!enabled) { stop(); return Step.Stop("auto-connect is off") }
+        if (connected) { stop(); return Step.Stop("connected") }
+        if (now >= until) { stop(); return Step.Stop("gave up after ${lengthMs / 1000} s") }
+        if (connecting) return Step.Wait
+        if (lastTry != 0L && now - lastTry < intervalMs - 200) return Step.Wait
+        lastTry = now
+        return Step.Connect
+    }
+}
+
+/**
+ * After the AirPods disconnect while out of the case (you disconnected them, or they went to
+ * another device), the gentle triggers (nearby, unlock) stay quiet so the phone doesn't grab them
+ * back. It wakes up again when the case closes (seen as a closed lid, or a [silenceMs] gap with
+ * no AirPods messages, since a closed case goes quiet), or when the AirPods link up by themselves.
+ */
+class DisconnectPause(private val silenceMs: Long = 8_000) {
+    var paused = false; private set
+    private var lastFrame = 0L
+
+    fun onDisconnected() { paused = true }
+
+    /** A message from the AirPods heard at [now]. */
+    fun onFrame(now: Long, lid: Lid) {
+        if (paused && (lid == Lid.CLOSED || (lastFrame != 0L && now - lastFrame >= silenceMs))) paused = false
+        lastFrame = now
+    }
+
+    /** The AirPods themselves reached out, or you asked explicitly: they're wanted. */
+    fun clear() { paused = false }
+}

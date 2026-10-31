@@ -259,3 +259,58 @@ class LinkedByThemselvesSimulationTest {
         assertTrue(p.onLinked(2 * 60_000L, true, false, false, false) is Decision.Connect) // next lid open
     }
 }
+
+class RetryWindowTest {
+    @Test fun `tries right away, then every 3 s, and stops once connected`() {
+        val w = RetryWindow()
+        assertTrue(w.start(0, "case opened"))
+        assertEquals(RetryWindow.Step.Connect, w.tick(0, true, false, false))
+        assertEquals(RetryWindow.Step.Wait, w.tick(1_000, true, false, false))
+        assertEquals(RetryWindow.Step.Connect, w.tick(3_000, true, false, false))
+        assertEquals(RetryWindow.Step.Stop("connected"), w.tick(6_000, true, true, false))
+        assertTrue(!w.active)
+    }
+
+    @Test fun `never asks again while Android is connecting`() {
+        val w = RetryWindow()
+        w.start(0, "x")
+        assertEquals(RetryWindow.Step.Connect, w.tick(0, true, false, false))
+        assertEquals(RetryWindow.Step.Wait, w.tick(3_000, true, false, true))
+        assertEquals(RetryWindow.Step.Wait, w.tick(6_000, true, false, true))
+    }
+
+    @Test fun `never tries when already connected`() {
+        val w = RetryWindow()
+        w.start(0, "x")
+        assertEquals(RetryWindow.Step.Stop("connected"), w.tick(0, true, true, false))
+    }
+
+    @Test fun `gives up after 30 s`() {
+        val w = RetryWindow()
+        w.start(0, "x")
+        var t = 0L
+        while (t < 30_000) { w.tick(t, true, false, false); t += 3_000 }
+        assertEquals(RetryWindow.Step.Stop("gave up after 30 s"), w.tick(30_000, true, false, false))
+    }
+}
+
+class DisconnectPauseTest {
+    @Test fun `stays paused while the AirPods keep talking, wakes when the case closes`() {
+        val p = DisconnectPause()
+        p.onDisconnected()
+        p.onFrame(1_000, Lid.OUT_OF_CASE); p.onFrame(2_000, Lid.OUT_OF_CASE)
+        assertTrue(p.paused)
+        p.onFrame(3_000, Lid.CLOSED)
+        assertTrue(!p.paused)
+    }
+
+    @Test fun `a quiet gap means the case was closed and reopened`() {
+        val p = DisconnectPause()
+        p.onFrame(0, Lid.UNKNOWN)
+        p.onDisconnected()
+        p.onFrame(1_000, Lid.UNKNOWN)
+        assertTrue(p.paused)
+        p.onFrame(12_000, Lid.OPEN)
+        assertTrue(!p.paused)
+    }
+}
