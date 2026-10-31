@@ -62,7 +62,8 @@
         android:layout_margin="8dp"
         android:background="@drawable/widget_connect_bg"
         android:contentDescription="@string/connect_airpods"
-        android:padding="7dp"
+        android:padding="8dp"
+        android:alpha="0.9"
         android:src="@drawable/ic_stat_buds"
         android:visibility="gone" />
 </FrameLayout>

@@ -82,15 +82,24 @@ object PodsConnector {
         return accepted
     }
 
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
     /** Called when AirPods are heard close by: connects them if they aren't connected yet. */
     fun autoConnect(ctx: Context, rssi: Int) {
         if (!Prefs.autoConnect(ctx) || Prefs.connectBlocked(ctx)) return
-        if (rssi < -62) return // only your own AirPods, right next to the phone
+        if (rssi < -72) return // only AirPods close to the phone
         val now = System.currentTimeMillis()
         if (now - lastAuto < AUTO_GAP_MS) return
         if (connected(ctx) || pairedPods(ctx) == null) return
         lastAuto = now
-        connect(ctx)
+        val app = ctx.applicationContext
+        if (headset != null || a2dp != null) {
+            connect(app)
+        } else {
+            // The app was asleep: open Android's headset service first, then connect.
+            prepare(app)
+            main.postDelayed({ if (!connect(app)) lastAuto = 0L }, 600)
+        }
     }
 
     fun bluetoothSettings(): Intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)

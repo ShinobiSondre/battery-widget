@@ -247,6 +247,6 @@ class AirPodsScanReceiver : BroadcastReceiver() {
         val pending = goAsync()
         AirPods.onResults(ctx, results)
         AirPodsService.ensure(ctx) // bring the listener back if it was closed
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ pending.finish() }, 2500)
+        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ pending.finish() }, 3000)
     }
 }
