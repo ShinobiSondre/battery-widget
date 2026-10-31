@@ -344,3 +344,27 @@ class ScreenOnWatchTest {
         assertEquals("AirPods not nearby", ScreenOnWatch().at(200_000, seen = 100_000))
     }
 }
+
+class SignalSmootherTest {
+    @Test fun `median ignores a single spike and unknown readings`() {
+        val s = SignalSmoother()
+        s.add(0, -80); s.add(500, -45); s.add(1_000, 127); s.add(1_500, -78); s.add(2_000, -79)
+        assertEquals(-79, s.median(2_000))
+    }
+
+    @Test fun `needs a few readings, and forgets old ones`() {
+        val s = SignalSmoother()
+        s.add(0, -60); s.add(100, -60)
+        assertNull(s.median(200))
+        s.add(200, -62)
+        assertEquals(-60, s.median(300))
+        assertNull(s.median(10_000))
+    }
+}
+
+class AppleSigTest {
+    @Test fun `splits a broadcast into its messages`() {
+        val sigs = AppleSig.all(hex("12 02 00 03 10 05 31 18 8D 4E EE"))
+        assertEquals(listOf(AppleSig(0x12, 2, 0x00, 0x03), AppleSig(0x10, 5, 0x31, 0xEE)), sigs)
+    }
+}

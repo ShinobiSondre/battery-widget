@@ -271,3 +271,57 @@ class ScreenOnWatch(
         return null
     }
 }
+
+/**
+ * Bluetooth signal strength jumps around a lot (hands, body, case angle, Fold open or closed).
+ * This keeps the readings of the last [windowMs] and gives their median, which ignores single
+ * spikes. 127 means "strength unknown" and is skipped. Needs [minSamples] readings to answer.
+ */
+class SignalSmoother(private val windowMs: Long = 4_000, private val minSamples: Int = 3) {
+    private val readings = ArrayDeque<Pair<Long, Int>>()
+
+    fun add(now: Long, rssi: Int) {
+        if (rssi == 127 || rssi >= 20) return
+        readings.addLast(now to rssi)
+        trim(now)
+    }
+
+    fun median(now: Long): Int? {
+        trim(now)
+        if (readings.size < minSamples) return null
+        val sorted = readings.map { it.second }.sorted()
+        return sorted[sorted.size / 2]
+    }
+
+    private fun trim(now: Long) {
+        while (readings.isNotEmpty() && now - readings.first().first > windowMs) readings.removeFirst()
+    }
+}
+
+/**
+ * One Apple message boiled down for the lid test: its type, length and the bytes that could
+ * carry a state (the first data byte, and the last one). The rest of a Find My message is an
+ * encrypted key that changes all the time, so it's left out.
+ */
+data class AppleSig(val type: Int, val len: Int, val first: Int, val last: Int) {
+    override fun toString() =
+        "%02X len %d first %02X last %02X".format(type, len, first, last)
+
+    companion object {
+        fun all(data: ByteArray): List<AppleSig> {
+            val out = mutableListOf<AppleSig>()
+            var i = 0
+            while (i + 1 < data.size) {
+                val type = data[i].toInt() and 0xFF
+                val len = data[i + 1].toInt() and 0xFF
+                val start = i + 2
+                val end = minOf(data.size, start + len)
+                val first = if (start < end) data[start].toInt() and 0xFF else -1
+                val last = if (start < end) data[end - 1].toInt() and 0xFF else -1
+                out += AppleSig(type, len, first, last)
+                i = start + len
+            }
+            return out
+        }
+    }
+}

@@ -254,13 +254,18 @@ object PodsConnector {
     @Volatile private var lastQuickRestart = 0L
 
     /** Every Find My message with a real strength (127 = the phone didn't say). */
+    private val smoother = SignalSmoother()
+
     fun findMySignal(ctx: Context, now: Long, rssi: Int) {
-        if (rssi == 127) return
-        signalRssi = rssi; signalAt = now
-        if (rssi < RESTART_RSSI) return
+        smoother.add(now, rssi)
+        // The median of the last few seconds, so one odd reading can't trigger anything.
+        val smooth = smoother.median(now) ?: return
+        signalRssi = smooth; signalAt = now
+        if (smooth < RESTART_RSSI) return
         val crossed = now - strongAt > 15_000 // was weaker (or unheard) for a while: it just got close
         strongAt = now
         if (!crossed || now - lastQuickRestart < 30_000) return
+        val rssi = smooth
         val app = ctx.applicationContext
         if (!Prefs.alwaysListen(app) || !Prefs.autoConnect(app) || soundConnected(app)) return
         lastQuickRestart = now

@@ -338,6 +338,8 @@ fun MainScreen() {
             if (debug.isNotBlank()) Text(debug, color = Muted.copy(alpha = 0.7f), fontSize = 11.sp)
         }
 
+        Section { LidTest() }
+
         Section {
             Text("Devices", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             Column(Modifier.animateContentSize(tween(350))) {
