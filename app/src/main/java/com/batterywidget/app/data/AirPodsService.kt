@@ -115,6 +115,7 @@ class AirPodsService : Service() {
     override fun onCreate() {
         super.onCreate()
         running = true
+        Prefs.addEvent(this, "listener started (${Perms.situation(this)})")
         if (!goForeground()) { stopSelf(); return }
         PodsConnector.prepare(this)
         handler.postDelayed({ if (PodsConnector.soundConnected(this)) AapClient.start(this) }, 1_500)
@@ -142,6 +143,7 @@ class AirPodsService : Service() {
     }
 
     override fun onDestroy() {
+        Prefs.addEvent(this, "listener stopped")
         running = false
         handler.removeCallbacksAndMessages(null)
         stopScan()
@@ -189,6 +191,7 @@ class AirPodsService : Service() {
             if (scanning) scanner.stopScan(callback)
             scanner.startScan(filters, settings, callback)
             lastStart = System.currentTimeMillis()
+            Prefs.addEvent(this, "scan started (${Perms.situation(this)})")
             Prefs.setListenerNote(this, if (hwFilter) "Listening (Apple filter)" else "Listening (all signals)")
             scanning = true
         } catch (e: Exception) {

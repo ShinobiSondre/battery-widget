@@ -42,7 +42,7 @@ object Prefs {
     @Synchronized
     fun addEvent(c: Context, msg: String) {
         val t = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
-        val list = (events(c) + "$t $msg").takeLast(12)
+        val list = (events(c) + "$t $msg").takeLast(25)
         sp(c).edit().putString("events", list.joinToString("\n")).apply()
     }
 

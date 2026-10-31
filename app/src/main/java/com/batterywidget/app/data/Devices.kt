@@ -54,6 +54,26 @@ object Perms {
     } catch (_: Exception) { true }
 
     fun all(ctx: Context) = hasConnect(ctx) && hasScan(ctx)
+
+    /**
+     * For the log: whether the app is on screen and what location access it has right now.
+     * This app's Bluetooth scans count as location use, so a scan started while the app is
+     * closed only gets results with "Allow all the time".
+     */
+    fun situation(ctx: Context): String {
+        val info = android.app.ActivityManager.RunningAppProcessInfo()
+        android.app.ActivityManager.getMyMemoryState(info)
+        val open = info.importance <= android.app.ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
+        val loc = when {
+            !hasLocation(ctx) -> "no location"
+            hasBackgroundLocation(ctx) -> "location all the time"
+            else -> "location only while open"
+        }
+        val pm = ctx.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+        val saver = if (pm.isPowerSaveMode) ", battery saver on" else ""
+        val locOff = if (!locationOn(ctx)) ", Location switch off" else ""
+        return "app ${if (open) "open" else "closed"}, $loc$locOff$saver"
+    }
 }
 
 object Devices {

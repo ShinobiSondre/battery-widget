@@ -30,15 +30,54 @@ object PodsConnector {
         val listener = object : BluetoothProfile.ServiceListener {
             override fun onServiceConnected(profile: Int, proxy: BluetoothProfile) {
                 if (profile == BluetoothProfile.HEADSET) headset = proxy else if (profile == BluetoothProfile.A2DP) a2dp = proxy
+                Prefs.addEvent(ctx, "${name(profile)} service ready")
             }
             override fun onServiceDisconnected(profile: Int) {
                 if (profile == BluetoothProfile.HEADSET) headset = null else if (profile == BluetoothProfile.A2DP) a2dp = null
+                Prefs.addEvent(ctx, "${name(profile)} service lost")
             }
         }
         try {
             if (headset == null) a.getProfileProxy(ctx.applicationContext, listener, BluetoothProfile.HEADSET)
             if (a2dp == null) a.getProfileProxy(ctx.applicationContext, listener, BluetoothProfile.A2DP)
         } catch (_: Exception) { }
+    }
+
+    private fun name(profile: Int) = if (profile == BluetoothProfile.HEADSET) "call" else "music"
+
+    /**
+     * Throws away the connections to Android's call and music services and opens fresh ones,
+     * then runs [then]. This is what turning "Always listen" off and on used to fix by accident:
+     * an old connection can say yes to "connect" and then do nothing.
+     */
+    fun reopen(ctx: Context, then: () -> Unit) {
+        val app = ctx.applicationContext
+        val a = adapter(app)
+        try {
+            headset?.let { a?.closeProfileProxy(BluetoothProfile.HEADSET, it) }
+            a2dp?.let { a?.closeProfileProxy(BluetoothProfile.A2DP, it) }
+        } catch (_: Exception) { }
+        headset = null; a2dp = null
+        prepare(app)
+        whenServicesReady(0, then)
+    }
+
+    private fun whenServicesReady(waited: Long, then: () -> Unit) {
+        if ((headset != null && a2dp != null) || waited >= 2_000) { then(); return }
+        main.postDelayed({ whenServicesReady(waited + 50, then) }, 50)
+    }
+
+    /** Android's own state for the AirPods, per service, for the log: e.g. "call: connecting, music: off". */
+    fun states(ctx: Context): String {
+        val dev = pairedPods(ctx) ?: return "no paired AirPods"
+        fun st(p: BluetoothProfile?) = try {
+            when (p?.getConnectionState(dev)) {
+                null -> "no service"; BluetoothProfile.STATE_CONNECTED -> "connected"
+                BluetoothProfile.STATE_CONNECTING -> "connecting"; BluetoothProfile.STATE_DISCONNECTING -> "disconnecting"
+                else -> "off"
+            }
+        } catch (_: SecurityException) { "no permission" }
+        return "call: ${st(headset)}, music: ${st(a2dp)}"
     }
 
     /** Your paired AirPods: the ones connected last, or any paired device called "...Pods". */
@@ -112,14 +151,22 @@ object PodsConnector {
         prepare(ctx)
         var accepted = false
         var blocked = false
-        for (proxy in listOfNotNull(headset, a2dp)) {
+        val parts = mutableListOf<String>()
+        if (headset == null && a2dp == null) parts += "services not open yet"
+        for ((label, proxy) in listOf("call" to headset, "music" to a2dp)) {
+            if (proxy == null) continue
             try {
                 val m = proxy.javaClass.getMethod("connect", BluetoothDevice::class.java)
-                if (m.invoke(proxy, dev) as? Boolean == true) accepted = true
+                val ok = m.invoke(proxy, dev) as? Boolean == true
+                if (ok) accepted = true
+                parts += "$label ${if (ok) "yes" else "no"}"
             } catch (e: Exception) {
                 blocked = true
+                val cause = (e as? java.lang.reflect.InvocationTargetException)?.cause ?: e
+                parts += "$label error ${cause.javaClass.simpleName}"
             }
         }
+        Prefs.addEvent(ctx, "connect request: ${parts.joinToString(", ")}")
         if (!accepted && blocked && headset != null) Prefs.setConnectBlocked(ctx, true)
         if (accepted) Prefs.setConnectBlocked(ctx, false)
         return accepted
@@ -209,7 +256,24 @@ object PodsConnector {
             if (!ok) connectTappedAt = 0L
             WidgetUpdater.updateAll(app)
             done(ok)
+            if (ok) main.postDelayed({ checkItHappened(app, reopened = false) }, 1_200)
         }, 400)
+    }
+
+    /**
+     * Android said yes; is it actually connecting? If neither call nor music has started, the
+     * connection to Android's services is stale: open fresh ones and ask again (once).
+     */
+    private fun checkItHappened(app: Context, reopened: Boolean) {
+        val now = states(app)
+        if (soundConnected(app) || connecting(app)) { Prefs.addEvent(app, "after connect: $now"); return }
+        if (reopened) { Prefs.addEvent(app, "still nothing after fresh services ($now)"); return }
+        Prefs.addEvent(app, "Android said yes but did nothing ($now); reopening its services")
+        reopen(app) {
+            val ok = connect(app)
+            Prefs.addEvent(app, "asked again with fresh services: ${if (ok) "accepted" else "refused"}")
+            if (ok) main.postDelayed({ checkItHappened(app, reopened = true) }, 1_200)
+        }
     }
 
     fun bluetoothSettings(): Intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)

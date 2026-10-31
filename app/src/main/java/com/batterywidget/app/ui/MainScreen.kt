@@ -329,7 +329,8 @@ fun MainScreen() {
                 Switch(checked = listen, onCheckedChange = {
                     listen = it
                     Prefs.setAlwaysListen(ctx, it)
-                    if (it) AirPods.sync(ctx) else AirPodsService.stop(ctx)
+                    Prefs.addEvent(ctx, "Always listen turned ${if (it) "on" else "off"}")
+                    if (it) AirPods.sync(ctx) else { AirPodsService.stop(ctx); AirPods.stopSystemScan(ctx) }
                     status = listenerStatus(ctx)
                 })
             }
@@ -365,7 +366,7 @@ fun MainScreen() {
                         color = Muted, fontSize = 13.sp
                     )
                 }
-                Switch(checked = autoConnect, onCheckedChange = { autoConnect = it; Prefs.setAutoConnect(ctx, it) })
+                Switch(checked = autoConnect, onCheckedChange = { autoConnect = it; Prefs.setAutoConnect(ctx, it); Prefs.addEvent(ctx, "Auto-connect turned ${if (it) "on" else "off"}") })
             }
             if (autoConnect && autoNote.isNotBlank()) {
                 Text("Last auto-connect: $autoNote", color = Muted.copy(alpha = 0.7f), fontSize = 11.sp)
