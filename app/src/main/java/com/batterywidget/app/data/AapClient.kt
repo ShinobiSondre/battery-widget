@@ -56,7 +56,9 @@ object AapClient {
         while (!Thread.currentThread().isInterrupted && attempts < 4) {
             attempts++
             val dev = PodsConnector.pairedPods(ctx) ?: run { note(ctx, "no paired AirPods"); return }
-            if (!PodsConnector.connected(ctx)) { note(ctx, "AirPods not connected"); return }
+            // Only while sound is connected: opening the channel otherwise wakes a bare link to AirPods
+            // in the case, which confuses the connected check and auto-connect.
+            if (!PodsConnector.audioConnected(ctx)) { note(ctx, "AirPods not connected"); return }
             try {
                 val s = createSocket(dev)
                 socket = s

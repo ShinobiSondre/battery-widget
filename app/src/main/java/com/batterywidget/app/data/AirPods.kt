@@ -92,6 +92,28 @@ object AirPods {
         return null
     }
 
+    /**
+     * Whether the case lid is open, read the way CAPod does: true/false, or null when it can't
+     * tell (no pod in the case, or the message came from the pod that's outside the case).
+     */
+    fun lidOpen(all: ByteArray): Boolean? {
+        var i = 0
+        while (i + 1 < all.size) {
+            val type = all[i].toInt() and 0xFF
+            val len = all[i + 1].toInt() and 0xFF
+            if (type == 0x07) {
+                if (i + 8 >= all.size || all[i + 2] != 0x01.toByte()) return null
+                val status = all[i + 5].toInt() and 0xFF
+                val inCase = (status and 0x40) != 0 // the pod sending this is in the case
+                val bothInCase = (status and 0x04) != 0
+                if (!inCase && !bothInCase) return null
+                return ((all[i + 8].toInt() shr 3) and 0x01) == 0
+            }
+            i += 2 + len
+        }
+        return null
+    }
+
     /** Message types found in a broadcast, for the debug line (like "10 07"). */
     fun types(all: ByteArray): String {
         val out = mutableListOf<String>()
@@ -147,7 +169,7 @@ object AirPods {
     /** Makes sure the always-on listener is running (when it's switched on). */
     fun sync(ctx: Context) {
         AirPodsService.ensure(ctx)
-        if (PodsConnector.connected(ctx)) AapClient.start(ctx)
+        if (PodsConnector.audioConnected(ctx)) AapClient.start(ctx)
         if (Prefs.alwaysListen(ctx)) startSystemScan(ctx) else stopSystemScan(ctx)
     }
 
@@ -224,7 +246,7 @@ object AirPods {
             .mapNotNull { r -> r.scanRecord?.getManufacturerSpecificData(APPLE)?.let { parse(it)?.let { p -> r to p } } }
             .maxByOrNull { it.first.rssi } ?: return false
         val (result, reading) = best
-        PodsConnector.autoConnect(ctx, result.rssi)
+        PodsConnector.autoConnect(ctx, result.rssi, result.scanRecord?.getManufacturerSpecificData(APPLE)?.let { lidOpen(it) })
         Prefs.setLastHeard(ctx, reading.at, result.rssi)
         val old = Prefs.loadPods(ctx)
         val changed = !reading.sameLevels(old)

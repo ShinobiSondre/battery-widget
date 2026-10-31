@@ -54,17 +54,49 @@ object PodsConnector {
         } catch (_: SecurityException) { null }
     }
 
-    /** Whether these AirPods (not just any headset) are connected right now. */
+    /** All paired devices that look like AirPods (some people have more than one pair). */
+    private fun allPods(ctx: Context): List<BluetoothDevice> {
+        if (!Perms.hasConnect(ctx)) return emptyList()
+        return try {
+            adapter(ctx)?.bondedDevices.orEmpty().filter {
+                it.address == Prefs.podsAddress(ctx) || (it.name ?: "").contains("pods", ignoreCase = true)
+            }
+        } catch (_: SecurityException) { emptyList() }
+    }
+
+    /** Android's own "is this device linked right now" (null when the phone won't say). */
+    private fun linked(dev: BluetoothDevice): Boolean? =
+        try { dev.javaClass.getMethod("isConnected").invoke(dev) as Boolean } catch (_: Exception) { null }
+
+    /**
+     * Whether AirPods are connected for sound (call or music link), like CAPod checks it.
+     * This is what auto-connect looks at: a bare link without sound still needs connecting.
+     */
+    fun audioConnected(ctx: Context): Boolean {
+        val pods = allPods(ctx).map { it.address }.toSet()
+        if (pods.isEmpty()) return false
+        val proxies = listOfNotNull(headset, a2dp)
+        if (proxies.isNotEmpty()) {
+            return try {
+                proxies.any { p -> p.connectedDevices.any { it.address in pods } }
+            } catch (_: SecurityException) { false }
+        }
+        // The services aren't open yet: ask Android for any connected headset or speaker.
+        return AirPods.audioConnected(ctx) && allPods(ctx).any { linked(it) != false }
+    }
+
+    /**
+     * Whether any AirPods are connected at all. Matches what the widget shows (it lists AirPods
+     * as soon as Android says they're linked), so the connect button never sits on top of them.
+     */
     fun connected(ctx: Context): Boolean {
-        // The Bluetooth link comes up a few seconds before audio does; count it straight away.
-        if (Prefs.podsLinked(ctx)) return true
-        val dev = pairedPods(ctx) ?: return false
-        val viaProfiles = try {
-            listOfNotNull(headset, a2dp).any { p -> p.connectedDevices.any { it.address == dev.address } }
-        } catch (_: SecurityException) { false }
-        if (viaProfiles) return true
-        if (headset != null || a2dp != null) return false // the profiles know, and they say no
-        return try { dev.javaClass.getMethod("isConnected").invoke(dev) as Boolean } catch (_: Exception) { Prefs.podsLinked(ctx) }
+        val pods = allPods(ctx)
+        if (pods.isEmpty()) return false
+        if (audioConnected(ctx)) return true
+        val states = pods.map { linked(it) }
+        if (states.any { it == true }) return true
+        if (states.all { it == false }) return false
+        return Prefs.podsLinked(ctx) // the phone won't say; go by the last link event
     }
 
     private fun note(ctx: Context, msg: String) {
@@ -80,50 +112,70 @@ object PodsConnector {
     @Volatile var connectTappedAt = 0L
 
     /**
-     * Asks Android to connect the AirPods. Returns false when this phone doesn't allow it
-     * (remembered, so the widget button opens Bluetooth settings from then on).
+     * Asks Android to connect the AirPods, the way CAPod does it: through the headset (calls)
+     * service, which brings music along with it. Returns false when that didn't go through.
      */
     fun connect(ctx: Context): Boolean {
         val dev = pairedPods(ctx) ?: return false
-        if (connected(ctx)) return true
+        if (audioConnected(ctx)) return true
         prepare(ctx)
-        var accepted = false
-        var blocked = false
-        for (proxy in listOfNotNull(headset, a2dp)) {
-            try {
-                val m = proxy.javaClass.getMethod("connect", BluetoothDevice::class.java)
-                if (m.invoke(proxy, dev) as? Boolean == true) accepted = true
-            } catch (e: Exception) {
-                blocked = true
-            }
+        val (proxy, cls) = when {
+            headset != null -> headset!! to android.bluetooth.BluetoothHeadset::class.java
+            a2dp != null -> a2dp!! to android.bluetooth.BluetoothA2dp::class.java
+            else -> return false
         }
-        if (!accepted && blocked && headset != null) Prefs.setConnectBlocked(ctx, true)
-        if (accepted) Prefs.setConnectBlocked(ctx, false)
-        return accepted
+        return try {
+            val m = cls.getDeclaredMethod("connect", BluetoothDevice::class.java).apply { isAccessible = true }
+            val ok = m.invoke(proxy, dev) as? Boolean ?: false
+            if (ok) Prefs.setConnectBlocked(ctx, false)
+            ok
+        } catch (e: Exception) {
+            val security = e is SecurityException ||
+                (e is java.lang.reflect.InvocationTargetException && e.cause is SecurityException)
+            // Only a refusal with the Bluetooth permission granted means the phone blocks it for good.
+            if (security && Perms.hasConnect(ctx)) Prefs.setConnectBlocked(ctx, true)
+            false
+        }
     }
 
     private val main = android.os.Handler(android.os.Looper.getMainLooper())
+    @Volatile private var lastLidOpen: Boolean? = null
 
-    /** Called when AirPods are heard close by: connects them if they aren't connected yet. */
-    fun autoConnect(ctx: Context, rssi: Int) {
+    /**
+     * Called whenever AirPods are heard close by. Like CAPod: connects them when the case lid
+     * opens (straight away, every time it opens), or when they're out of the case and not
+     * connected. While they stay unconnected it tries again every 20 seconds.
+     */
+    fun autoConnect(ctx: Context, rssi: Int, lidOpen: Boolean?, retried: Boolean = false) {
+        val justOpened = lidOpen == true && lastLidOpen != true
+        if (lidOpen != null) lastLidOpen = lidOpen
         if (!Prefs.autoConnect(ctx)) return
         if (Prefs.connectBlocked(ctx)) { note(ctx, "skipped: this phone blocks app connections"); return }
+        if (lidOpen == false) return // case shut: nothing to connect
         val now = System.currentTimeMillis()
-        if (now - lastAuto < AUTO_GAP_MS) return
+        if (!justOpened && now - lastAuto < AUTO_GAP_MS) return
         if (rssi < -80) { note(ctx, "heard AirPods but too far away ($rssi dBm)"); return }
         val app = ctx.applicationContext
         if (pairedPods(app) == null) { note(ctx, "skipped: no paired AirPods found"); return }
         if (headset == null && a2dp == null) {
-            // The app was asleep: open Android's headset service first, then try.
+            if (retried) { note(ctx, "Android's headset service didn't open"); return }
+            // The app was asleep: open Android's headset service first, then try right away.
             prepare(app)
             lastAuto = now
-            main.postDelayed({ lastAuto = 0L; autoConnect(app, rssi) }, 700)
+            whenReady { lastAuto = 0L; autoConnect(app, rssi, null, retried = true) }
             return
         }
-        if (connected(app)) return
+        if (audioConnected(app)) return
         lastAuto = now
         val ok = connect(app)
-        note(app, if (ok) "asked Android to connect ($rssi dBm)" else "Android refused to connect ($rssi dBm)")
+        val why = if (justOpened) "case opened" else "AirPods nearby"
+        note(app, if (ok) "$why, asked Android to connect ($rssi dBm)" else "$why, Android refused to connect ($rssi dBm)")
+    }
+
+    /** Runs [then] once the headset service is open (checks every 50 ms, up to 2 s). */
+    private fun whenReady(waited: Long = 0, then: () -> Unit) {
+        if (headset != null || a2dp != null || waited >= 2_000) { then(); return }
+        main.postDelayed({ whenReady(waited + 50, then) }, 50)
     }
 
     fun bluetoothSettings(): Intent = Intent(Settings.ACTION_BLUETOOTH_SETTINGS)

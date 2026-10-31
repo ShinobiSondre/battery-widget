@@ -85,8 +85,8 @@ object Prefs {
     fun setAutoConnect(c: Context, v: Boolean) = sp(c).edit().putBoolean("auto_connect", v).apply()
 
     /** This phone doesn't let apps connect Bluetooth devices (the button opens settings instead). */
-    fun connectBlocked(c: Context) = sp(c).getBoolean("connect_blocked", false)
-    fun setConnectBlocked(c: Context, v: Boolean) = sp(c).edit().putBoolean("connect_blocked", v).apply()
+    fun connectBlocked(c: Context) = sp(c).getBoolean("connect_blocked_v2", false)
+    fun setConnectBlocked(c: Context, v: Boolean) = sp(c).edit().putBoolean("connect_blocked_v2", v).apply()
 
     /** What auto-connect did last, shown in the app. */
     fun autoNote(c: Context) = sp(c).getString("auto_note", "") ?: ""

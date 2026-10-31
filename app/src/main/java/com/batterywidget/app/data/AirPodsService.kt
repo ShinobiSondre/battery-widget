@@ -73,7 +73,7 @@ class AirPodsService : Service() {
                 // Headset or audio link finished connecting: redraw now (hides the connect button).
                 HEADSET_STATE, A2DP_STATE -> {
                     // Audio is up: open the AirPods' own channel for exact battery.
-                    if (PodsConnector.connected(ctx)) handler.postDelayed({ AapClient.start(ctx) }, 1_000)
+                    if (PodsConnector.audioConnected(ctx)) handler.postDelayed({ AapClient.start(ctx) }, 1_000)
                     WidgetUpdater.updateAllThrottled(ctx, force = true)
                     updateNotice()
                 }
@@ -104,7 +104,7 @@ class AirPodsService : Service() {
         running = true
         if (!goForeground()) { stopSelf(); return }
         PodsConnector.prepare(this)
-        handler.postDelayed({ if (PodsConnector.connected(this)) AapClient.start(this) }, 1_500)
+        handler.postDelayed({ if (PodsConnector.audioConnected(this)) AapClient.start(this) }, 1_500)
         val f = IntentFilter().apply {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
             addAction(Intent.ACTION_SCREEN_ON)
