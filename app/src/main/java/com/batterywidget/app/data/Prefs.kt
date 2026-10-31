@@ -67,6 +67,8 @@ object Prefs {
     fun setWidgetShown(c: Context, id: Int, v: Int) = sp(c).edit().putInt("w_shown_$id", v).apply()
     fun widgetSig(c: Context, id: Int) = sp(c).getString("w_sig_$id", "") ?: ""
     fun setWidgetSig(c: Context, id: Int, v: String) = sp(c).edit().putString("w_sig_$id", v).apply()
+    fun widgetOffer(c: Context, id: Int) = sp(c).getBoolean("w_offer_$id", false)
+    fun setWidgetOffer(c: Context, id: Int, v: Boolean) = sp(c).edit().putBoolean("w_offer_$id", v).apply()
     fun widgetDrawn(c: Context, id: Int) = sp(c).getBoolean("w_drawn_$id", false)
     fun setWidgetDrawn(c: Context, id: Int) = sp(c).edit().putBoolean("w_drawn_$id", true).apply()
 

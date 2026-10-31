@@ -162,6 +162,18 @@ object WidgetUpdater {
             val sig = "${items.joinToString { "${it.name}:${it.level}:${it.charging}" }}|$style|$opacity|$wDp|$hDp|$highlight|$offerConnect"
             val firstTime = !Prefs.widgetDrawn(ctx, id)
             if (!full && !firstTime && sig == Prefs.widgetSig(ctx, id)) continue
+
+            // The connect button goes away first; the new picture (e.g. the AirPods appearing)
+            // crossfades in a moment later, so the two don't happen on top of each other.
+            if (!offerConnect && Prefs.widgetOffer(ctx, id) && !full && !firstTime) {
+                val hide = RemoteViews(ctx.packageName, R.layout.widget_battery)
+                hide.setViewVisibility(R.id.widget_connect, View.GONE)
+                mgr.partiallyUpdateAppWidget(id, hide)
+                Prefs.setWidgetOffer(ctx, id, false)
+                main.postDelayed({ draw(ctx, mgr, intArrayOf(id), items, highlight, false) }, 250)
+                continue
+            }
+            Prefs.setWidgetOffer(ctx, id, offerConnect)
             Prefs.setWidgetSig(ctx, id, sig)
 
             // Keep the pictures small enough for the launcher to accept.
