@@ -20,9 +20,15 @@ data class Item(val name: String, val level: Int, val icon: IconKind, val chargi
 object Perms {
     /** What to ask Android for so the app can see Bluetooth devices and AirPods. */
     val needed: Array<String>
-        get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
-            arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
-        else arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        get() = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU -> arrayOf(
+                Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+                arrayOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+            else -> arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
 
     fun granted(ctx: Context, p: String) =
         ContextCompat.checkSelfPermission(ctx, p) == PackageManager.PERMISSION_GRANTED
@@ -69,13 +75,18 @@ object Devices {
             val adapter = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
                 ?: return emptyList()
             if (!adapter.isEnabled) return emptyList()
+            val now = System.currentTimeMillis()
             adapter.bondedDevices.orEmpty()
-                .filter { isConnected(it) }
                 .mapNotNull { d ->
+                    // Battery Android announced recently (heard by the AirPods listener).
+                    val (cached, at) = Prefs.deviceBattery(ctx, d.address)
+                    val recent = cached >= 0 && now - at < 30 * 60_000L
+                    val connected = when (isConnected(d)) { true -> true; false -> false; null -> recent }
+                    if (!connected) return@mapNotNull null
                     val alias = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) d.alias else null
                     val name = alias ?: d.name ?: "Device"
                     if (skipPods && name.contains("pods", ignoreCase = true)) return@mapNotNull null
-                    val level = batteryLevel(d)
+                    val level = batteryLevel(d).takeIf { it >= 0 } ?: if (recent) cached else -1
                     if (level < 0) null else Item(name, level.coerceIn(0, 100), iconFor(d, name))
                 }
                 .sortedBy { it.name }
@@ -86,9 +97,9 @@ object Devices {
 
     // These two methods exist on every Android phone but aren't in the public SDK, so they're
     // looked up by name. If a phone ever removes them, the device is simply left out.
-    private fun isConnected(d: BluetoothDevice): Boolean = try {
+    private fun isConnected(d: BluetoothDevice): Boolean? = try {
         d.javaClass.getMethod("isConnected").invoke(d) as Boolean
-    } catch (_: Exception) { false }
+    } catch (_: Exception) { null }
 
     private fun batteryLevel(d: BluetoothDevice): Int = try {
         d.javaClass.getMethod("getBatteryLevel").invoke(d) as Int

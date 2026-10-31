@@ -40,12 +40,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         Updater.onResume(this)
-        AirPods.sync(this, force = true) // listen for AirPods while the app is open
+        AirPods.sync(this) // start the always-on AirPods listener
     }
 
     override fun onPause() {
         super.onPause()
-        AirPods.sync(this)
         WidgetUpdater.updateAll(this)
     }
 }

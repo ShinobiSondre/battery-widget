@@ -39,7 +39,6 @@ class BatteryWidgetProvider : AppWidgetProvider() {
 
     override fun onDisabled(ctx: Context) {
         WorkManager.getInstance(ctx).cancelUniqueWork(WidgetUpdater.PERIODIC)
-        AirPods.stop(ctx)
     }
 
     override fun onReceive(ctx: Context, intent: Intent) {
@@ -53,10 +52,11 @@ class BatteryWidgetProvider : AppWidgetProvider() {
     }
 }
 
-/** Redraws the widget when a Bluetooth device connects or disconnects. */
+/** Redraws the widget when a Bluetooth device connects or disconnects, and restarts the
+ *  AirPods listener after the phone restarts or the app updates. */
 class BluetoothEventReceiver : BroadcastReceiver() {
     override fun onReceive(ctx: Context, intent: Intent) {
-        AirPods.sync(ctx, force = intent.action == "android.bluetooth.device.action.ACL_CONNECTED")
+        AirPods.sync(ctx)
         WidgetUpdater.updateAll(ctx)
         WidgetUpdater.refreshSoon(ctx) // battery levels are reported a little after connecting
     }
@@ -90,9 +90,9 @@ object WidgetUpdater {
     }
 
     /** Redraws at most every 15 seconds, for the frequent AirPods readings. */
-    fun updateAllThrottled(ctx: Context) {
+    fun updateAllThrottled(ctx: Context, force: Boolean = false) {
         val now = System.currentTimeMillis()
-        if (now - Prefs.lastWidgetDraw(ctx) < 15_000) return
+        if (!force && now - Prefs.lastWidgetDraw(ctx) < 15_000) return
         updateAll(ctx)
     }
 

@@ -32,6 +32,26 @@ object Prefs {
         )
     }
 
+    /** Keep listening for AirPods in the background (with a small ongoing notification). */
+    fun alwaysListen(c: Context) = sp(c).getBoolean("always_listen", true)
+    fun setAlwaysListen(c: Context, v: Boolean) = sp(c).edit().putBoolean("always_listen", v).apply()
+
+    /** Last time any AirPods message was heard, and how strong it was. */
+    fun lastHeard(c: Context) = sp(c).getLong("heard_at", 0L)
+    fun lastRssi(c: Context) = sp(c).getInt("heard_rssi", 0)
+    fun setLastHeard(c: Context, at: Long, rssi: Int) =
+        sp(c).edit().putLong("heard_at", at).putInt("heard_rssi", rssi).apply()
+
+    /** A short status line from the listener, shown in the app. */
+    fun listenerNote(c: Context) = sp(c).getString("listener_note", "") ?: ""
+    fun setListenerNote(c: Context, v: String) = sp(c).edit().putString("listener_note", v).apply()
+
+    /** Battery levels Android announced for Bluetooth devices, by address. */
+    fun saveDeviceBattery(c: Context, address: String, level: Int) = sp(c).edit()
+        .putInt("bt_lvl_$address", level).putLong("bt_at_$address", System.currentTimeMillis()).apply()
+    fun deviceBattery(c: Context, address: String): Pair<Int, Long> =
+        sp(c).getInt("bt_lvl_$address", -1) to sp(c).getLong("bt_at_$address", 0L)
+
     fun lastWidgetDraw(c: Context) = sp(c).getLong("last_draw", 0L)
     fun setLastWidgetDraw(c: Context, t: Long) = sp(c).edit().putLong("last_draw", t).apply()
 }

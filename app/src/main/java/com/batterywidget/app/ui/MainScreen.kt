@@ -27,6 +27,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.batterywidget.app.BuildConfig
 import com.batterywidget.app.data.AirPods
+import com.batterywidget.app.data.AirPodsService
 import com.batterywidget.app.data.Devices
 import com.batterywidget.app.data.IconKind
 import com.batterywidget.app.data.Perms
@@ -76,10 +78,12 @@ fun MainScreen() {
     var style by remember { mutableStateOf(Prefs.style(ctx)) }
     var items by remember { mutableStateOf(Devices.read(ctx)) }
     var hasPerms by remember { mutableStateOf(Perms.all(ctx)) }
+    var listen by remember { mutableStateOf(Prefs.alwaysListen(ctx)) }
+    var status by remember { mutableStateOf(listenerStatus(ctx)) }
 
     val askPerms = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         hasPerms = Perms.all(ctx)
-        AirPods.sync(ctx, force = true)
+        AirPods.sync(ctx)
         items = Devices.read(ctx)
         WidgetUpdater.updateAll(ctx)
     }
@@ -88,6 +92,7 @@ fun MainScreen() {
     LaunchedEffect(Unit) {
         while (true) {
             items = Devices.read(ctx)
+            status = listenerStatus(ctx)
             delay(3000)
         }
     }
@@ -169,6 +174,23 @@ fun MainScreen() {
         }
 
         Section {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Always listen for AirPods", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Keeps the widget's AirPods battery up to date. Shows a small silent notification.",
+                        color = Muted, fontSize = 13.sp)
+                }
+                Switch(checked = listen, onCheckedChange = {
+                    listen = it
+                    Prefs.setAlwaysListen(ctx, it)
+                    if (it) AirPods.sync(ctx) else AirPodsService.stop(ctx)
+                    status = listenerStatus(ctx)
+                })
+            }
+            Text(status, color = Muted, fontSize = 13.sp)
+        }
+
+        Section {
             Text("Devices", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
             items.forEach { item ->
                 Row(Modifier.fillMaxWidth().height(44.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -213,6 +235,20 @@ fun MainScreen() {
             }) { Text("Check for update") }
         }
     }
+}
+
+private fun listenerStatus(ctx: android.content.Context): String {
+    if (!Prefs.alwaysListen(ctx)) return "Off"
+    if (!Perms.all(ctx)) return "Tap Allow above first"
+    val heard = Prefs.lastHeard(ctx)
+    val note = Prefs.listenerNote(ctx)
+    val on = if (AirPodsService.running) "Listening" else "Not running"
+    return if (heard > 0L) {
+        val secs = (System.currentTimeMillis() - heard) / 1000
+        val ago = when { secs < 60 -> "${secs}s"; secs < 3600 -> "${secs / 60} min"; else -> "${secs / 3600} h" }
+        "$on · AirPods last heard $ago ago (signal ${Prefs.lastRssi(ctx)})"
+    } else if (AirPodsService.running) "$on · not heard yet. Take the AirPods out or open the case lid near the phone."
+    else "$on · $note"
 }
 
 @Composable

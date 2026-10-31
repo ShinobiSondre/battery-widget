@@ -1,17 +1,9 @@
 package com.batterywidget.app.data
 
-import android.app.PendingIntent
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
-import android.bluetooth.le.BluetoothLeScanner
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
-import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.Intent
-import android.os.Build
-import androidx.core.content.IntentCompat
 import com.batterywidget.app.widget.WidgetUpdater
 import kotlin.math.abs
 
@@ -42,13 +34,12 @@ data class PodsReading(
 /**
  * AirPods don't share their battery with Android the normal way. Instead they keep broadcasting
  * a small Bluetooth "status" message (the same one an iPhone uses for its pop-up), which has
- * left, right and case battery in steps of 10%. Android's own Bluetooth chip listens for those
- * messages for us while a Bluetooth audio device is connected, and wakes [AirPodsScanReceiver].
+ * left, right and case battery in steps of 10%. [AirPodsService] listens for those all the time.
  */
 object AirPods {
-    private const val APPLE = 76
+    const val APPLE = 76
     private const val FRESH_MS = 5 * 60 * 1000L
-    private const val NEAR_RSSI = -67 // ignores other people's AirPods further away
+    private const val NEAR_RSSI = -82 // ignores other people's AirPods far away
 
     /** The latest reading, if it's recent enough to trust. */
     fun current(ctx: Context): PodsReading? {
@@ -57,7 +48,9 @@ object AirPods {
     }
 
     fun parse(d: ByteArray): PodsReading? {
-        if (d.size != 27 || d[0] != 0x07.toByte() || d[1] != 0x19.toByte()) return null
+        // 0x07 = "proximity pairing" status message. Older and newer AirPods differ in length,
+        // but the battery part sits in the same place.
+        if (d.size < 9 || d[0] != 0x07.toByte()) return null
         // Digit i of the message written out in hex: even = high half of a byte, odd = low half.
         fun nib(i: Int): Int {
             val b = d[i / 2].toInt() and 0xFF
@@ -67,11 +60,11 @@ object AirPods {
         fun level(v: Int) = when (v) { 10 -> 100; in 0..9 -> v * 10 + 5; else -> -1 }
         val charge = nib(14)
         val model = when (((d[3].toInt() and 0xFF) shl 8) or (d[4].toInt() and 0xFF)) {
-            0x0E20, 0x1420, 0x2420 -> "AirPods Pro"
-            0x0A20 -> "AirPods Max"
+            0x0E20, 0x1420, 0x2420, 0x2720 -> "AirPods Pro"
+            0x0A20, 0x1F20 -> "AirPods Max"
             else -> "AirPods"
         }
-        return PodsReading(
+        val r = PodsReading(
             left = level(nib(if (flipped) 12 else 13)),
             right = level(nib(if (flipped) 13 else 12)),
             case = level(nib(15)),
@@ -81,17 +74,7 @@ object AirPods {
             model = model,
             at = System.currentTimeMillis()
         )
-    }
-
-    private fun scanner(ctx: Context): BluetoothLeScanner? = try {
-        val a = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-        if (a != null && a.isEnabled) a.bluetoothLeScanner else null
-    } catch (_: Exception) { null }
-
-    private fun pendingIntent(ctx: Context): PendingIntent {
-        var flags = PendingIntent.FLAG_UPDATE_CURRENT
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) flags = flags or PendingIntent.FLAG_MUTABLE
-        return PendingIntent.getBroadcast(ctx, 7, Intent(ctx, AirPodsScanReceiver::class.java), flags)
+        return if (r.left < 0 && r.right < 0 && r.case < 0) null else r
     }
 
     /** True while a Bluetooth headset or speaker is connected. */
@@ -102,52 +85,24 @@ object AirPods {
                 a.getProfileConnectionState(BluetoothProfile.HEADSET) == BluetoothProfile.STATE_CONNECTED)
     } catch (_: SecurityException) { false }
 
-    /** Listens for AirPods while audio is connected (or when [force]d), and stops otherwise. */
-    fun sync(ctx: Context, force: Boolean = false) {
-        if (force || audioConnected(ctx)) start(ctx) else stop(ctx)
-    }
+    /** Makes sure the always-on listener is running (when it's switched on). */
+    fun sync(ctx: Context) = AirPodsService.ensure(ctx)
 
-    private fun start(ctx: Context) {
-        if (!Perms.hasScan(ctx)) return
-        val s = scanner(ctx) ?: return
-        val filter = ScanFilter.Builder()
-            .setManufacturerData(APPLE, byteArrayOf(0x07, 0x19), byteArrayOf(-1, -1))
-            .build()
-        val settings = ScanSettings.Builder()
-            .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER)
-            .build()
-        try {
-            val pi = pendingIntent(ctx)
-            s.stopScan(pi)
-            s.startScan(listOf(filter), settings, pi)
-        } catch (_: Exception) { }
-    }
-
-    fun stop(ctx: Context) {
-        if (!Perms.hasScan(ctx)) return
-        try { scanner(ctx)?.stopScan(pendingIntent(ctx)) } catch (_: Exception) { }
-    }
-
-    fun onResults(ctx: Context, results: List<ScanResult>) {
+    /** Handles AirPods messages. Returns true when the battery changed. */
+    fun onResults(ctx: Context, results: List<ScanResult>): Boolean {
         val best = results
             .filter { it.rssi >= NEAR_RSSI }
-            .maxByOrNull { it.rssi } ?: return
-        val data = best.scanRecord?.getManufacturerSpecificData(APPLE) ?: return
-        val reading = parse(data) ?: return
+            .mapNotNull { r -> r.scanRecord?.getManufacturerSpecificData(APPLE)?.let { parse(it)?.let { p -> r to p } } }
+            .maxByOrNull { it.first.rssi } ?: return false
+        val (result, reading) = best
+        Prefs.setLastHeard(ctx, reading.at, result.rssi)
         val old = Prefs.loadPods(ctx)
         val changed = !reading.sameLevels(old)
-        val stale = old == null || reading.at - old.at > 60_000
-        if (!changed && !stale) return
+        val stale = old == null || reading.at - old.at > 30_000
+        if (!changed && !stale) return false
+        val wasHidden = old == null || reading.at - old.at > FRESH_MS
         Prefs.savePods(ctx, reading)
-        if (changed || old == null || reading.at - old.at > FRESH_MS) WidgetUpdater.updateAllThrottled(ctx)
-    }
-}
-
-class AirPodsScanReceiver : BroadcastReceiver() {
-    override fun onReceive(ctx: Context, intent: Intent) {
-        val results = IntentCompat.getParcelableArrayListExtra(
-            intent, BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT, ScanResult::class.java
-        ) ?: return
-        AirPods.onResults(ctx, results)
+        if (changed || wasHidden) WidgetUpdater.updateAllThrottled(ctx, force = wasHidden)
+        return changed || wasHidden
     }
 }

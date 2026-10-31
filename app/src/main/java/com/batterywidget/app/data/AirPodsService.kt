@@ -1,0 +1,210 @@
+package com.batterywidget.app.data
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.app.Service
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
+import android.bluetooth.BluetoothManager
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.ServiceInfo
+import android.os.Build
+import android.os.Handler
+import android.os.IBinder
+import android.os.Looper
+import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.core.content.IntentCompat
+import com.batterywidget.app.MainActivity
+import com.batterywidget.app.R
+import com.batterywidget.app.widget.WidgetUpdater
+
+/**
+ * Keeps listening for AirPods all the time, like the AirPods pop-up apps do. Android requires a
+ * small ongoing notification for this; it also shows the latest AirPods battery.
+ */
+class AirPodsService : Service() {
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var scanning = false
+
+    private val callback = object : ScanCallback() {
+        override fun onScanResult(callbackType: Int, result: ScanResult) = heard(listOf(result))
+        override fun onBatchScanResults(results: MutableList<ScanResult>) = heard(results)
+        override fun onScanFailed(errorCode: Int) {
+            Prefs.setListenerNote(this@AirPodsService, "Bluetooth scan failed (code $errorCode)")
+            scanning = false
+            handler.postDelayed({ startScan() }, 30_000)
+        }
+    }
+
+    private val events = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context, intent: Intent) {
+            when (intent.action) {
+                BluetoothAdapter.ACTION_STATE_CHANGED -> {
+                    val on = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) == BluetoothAdapter.STATE_ON
+                    if (on) startScan() else { scanning = false }
+                }
+                Intent.ACTION_SCREEN_ON -> restartScan() // some phones pause scans while the screen is off
+                BATTERY_LEVEL_CHANGED -> {
+                    val d = IntentCompat.getParcelableExtra(intent, BluetoothDevice.EXTRA_DEVICE, BluetoothDevice::class.java)
+                    val level = intent.getIntExtra(EXTRA_BATTERY_LEVEL, -1)
+                    if (d != null && level >= 0) {
+                        Prefs.saveDeviceBattery(ctx, d.address, level)
+                        WidgetUpdater.updateAllThrottled(ctx)
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onBind(intent: Intent?): IBinder? = null
+
+    override fun onCreate() {
+        super.onCreate()
+        running = true
+        if (!goForeground()) { stopSelf(); return }
+        val f = IntentFilter().apply {
+            addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(BATTERY_LEVEL_CHANGED)
+        }
+        ContextCompat.registerReceiver(this, events, f, ContextCompat.RECEIVER_NOT_EXPORTED)
+        startScan()
+        handler.post(refreshNotice)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!scanning) startScan()
+        return START_STICKY
+    }
+
+    override fun onDestroy() {
+        running = false
+        handler.removeCallbacksAndMessages(null)
+        stopScan()
+        try { unregisterReceiver(events) } catch (_: Exception) { }
+        super.onDestroy()
+    }
+
+    private fun goForeground(): Boolean = try {
+        val n = notification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(NOTE_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        } else startForeground(NOTE_ID, n)
+        true
+    } catch (e: Exception) {
+        Prefs.setListenerNote(this, "Couldn't start listening: ${e.javaClass.simpleName}")
+        false
+    }
+
+    private fun startScan() {
+        if (!Perms.hasScan(this)) { Prefs.setListenerNote(this, "Needs the Nearby devices permission"); return }
+        val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+        val scanner = if (adapter != null && adapter.isEnabled) adapter.bluetoothLeScanner else null
+        if (scanner == null) { Prefs.setListenerNote(this, "Bluetooth is off"); return }
+        val filter = ScanFilter.Builder()
+            .setManufacturerData(AirPods.APPLE, byteArrayOf(0x07), byteArrayOf(-1))
+            .build()
+        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build()
+        try {
+            if (scanning) scanner.stopScan(callback)
+            scanner.startScan(listOf(filter), settings, callback)
+            scanning = true
+            if (Prefs.lastHeard(this) == 0L) Prefs.setListenerNote(this, "Listening for AirPods…")
+        } catch (e: Exception) {
+            Prefs.setListenerNote(this, "Couldn't scan: ${e.javaClass.simpleName}")
+        }
+    }
+
+    private fun stopScan() {
+        if (!scanning) return
+        scanning = false
+        try {
+            val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+            adapter?.bluetoothLeScanner?.stopScan(callback)
+        } catch (_: Exception) { }
+    }
+
+    private fun restartScan() { stopScan(); startScan() }
+
+    private fun heard(results: List<ScanResult>) {
+        if (AirPods.onResults(this, results)) updateNotice()
+    }
+
+    // Android quietly ends very long scans on some phones; restarting every 20 minutes avoids that.
+    private val refreshNotice = object : Runnable {
+        override fun run() {
+            updateNotice()
+            if (System.currentTimeMillis() - lastRestart > 20 * 60_000L) { lastRestart = System.currentTimeMillis(); restartScan() }
+            handler.postDelayed(this, 60_000)
+        }
+    }
+    private var lastRestart = System.currentTimeMillis()
+
+    private fun updateNotice() {
+        try {
+            (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTE_ID, notification())
+        } catch (_: SecurityException) { }
+    }
+
+    private fun notification(): Notification {
+        val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(CHANNEL) == null) {
+            nm.createNotificationChannel(
+                NotificationChannel(CHANNEL, "AirPods listener", NotificationManager.IMPORTANCE_MIN).apply {
+                    description = "Keeps the widget's AirPods battery up to date"
+                    setShowBadge(false)
+                }
+            )
+        }
+        val pods = AirPods.current(this)
+        val text = pods?.toItems()?.joinToString("  ·  ") { "${it.name} ${it.level}%" }
+            ?: "Listening for AirPods"
+        val open = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+        )
+        return NotificationCompat.Builder(this, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_buds)
+            .setContentTitle(text)
+            .setContentIntent(open)
+            .setOngoing(true)
+            .setSilent(true)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
+            .build()
+    }
+
+    companion object {
+        private const val CHANNEL = "airpods"
+        private const val NOTE_ID = 42
+        const val BATTERY_LEVEL_CHANGED = "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED"
+        const val EXTRA_BATTERY_LEVEL = "android.bluetooth.device.extra.BATTERY_LEVEL"
+
+        @Volatile var running = false; private set
+
+        /** Starts listening if the user wants it and Android allows it right now. */
+        fun ensure(ctx: Context) {
+            if (!Prefs.alwaysListen(ctx) || !Perms.all(ctx)) return
+            try {
+                ContextCompat.startForegroundService(ctx, Intent(ctx, AirPodsService::class.java))
+            } catch (e: Exception) {
+                // Android blocks starting from the background in a few cases; the next app open,
+                // widget tap or Bluetooth connection starts it instead.
+                Prefs.setListenerNote(ctx, "Waiting to start (open the app once)")
+            }
+        }
+
+        fun stop(ctx: Context) = ctx.stopService(Intent(ctx, AirPodsService::class.java))
+    }
+}
