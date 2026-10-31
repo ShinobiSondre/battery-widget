@@ -167,6 +167,34 @@ object PodsConnector {
     }
 
     /**
+     * Called the moment the AirPods link up. When they did that by themselves (lid opened) and
+     * sound isn't connected, connect them like the button does, then check once more 1.5 s later
+     * while the link is still there.
+     */
+    fun onLinked(ctx: Context) {
+        val app = ctx.applicationContext
+        prepare(app)
+        fun attempt(retry: Boolean) {
+            if (retry && !Prefs.podsLinked(app)) return // they already gave up
+            val now = System.currentTimeMillis()
+            val d = policy.onLinked(
+                now, Prefs.autoConnect(app), soundConnected(app), connecting(app),
+                weAskedRecently = now - connectTappedAt < 12_000, retry = retry
+            )
+            when (d) {
+                is AutoConnectPolicy.Decision.Skip -> if (!retry) Prefs.addEvent(app, "auto-connect: ${d.reason}")
+                is AutoConnectPolicy.Decision.Connect -> pressConnect(app) { ok ->
+                    val msg = "${d.reason}: " + if (ok) "asked Android to connect" else "Android refused to connect"
+                    note(app, msg); Prefs.addEvent(app, msg)
+                    if (!retry) main.postDelayed({ attempt(true) }, 1_500)
+                }
+            }
+        }
+        // The headset service may need a moment to open after the app was asleep.
+        main.postDelayed({ attempt(false) }, if (headset == null && a2dp == null) 300L else 0L)
+    }
+
+    /**
      * What the widget's connect button does: hide the button, open the headset service,
      * give it a moment, then connect. [done] gets whether Android accepted.
      */

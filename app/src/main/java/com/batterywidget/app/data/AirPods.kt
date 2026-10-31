@@ -75,9 +75,12 @@ object AirPods {
         val name = try { d.name } catch (_: SecurityException) { null } ?: return
         if (!name.contains("pods", ignoreCase = true)) return
         val connected = intent.action == android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED
-        if (Prefs.podsLinked(ctx) != connected) Prefs.addEvent(ctx, if (connected) "AirPods linked" else "AirPods unlinked")
+        val changed = Prefs.podsLinked(ctx) != connected
+        if (changed) Prefs.addEvent(ctx, if (connected) "AirPods linked" else "AirPods unlinked")
         Prefs.setPodsLinked(ctx, connected)
         if (connected) Prefs.setPodsAddress(ctx, d.address) else AapClient.stop()
+        // Lid opened: the AirPods reach out to the phone on their own. Finish the job.
+        if (connected && changed) PodsConnector.onLinked(ctx)
     }
 
     /**

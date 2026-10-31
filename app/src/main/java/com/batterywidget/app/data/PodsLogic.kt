@@ -74,6 +74,28 @@ class AutoConnectPolicy(
     private var lastAttempt = 0L
     private var attempts = 0
 
+    private var lastLinkTry: Long? = null
+
+    /**
+     * The AirPods opened a Bluetooth link to the phone by themselves (they do this when the lid
+     * opens) but sound isn't connected. They give up after ~3 s, so connect right now, while
+     * they're awake. Works even when the phone hears none of their status broadcasts.
+     */
+    fun onLinked(
+        now: Long, enabled: Boolean, soundConnected: Boolean, connecting: Boolean,
+        weAskedRecently: Boolean, retry: Boolean = false,
+    ): Decision {
+        if (!enabled) return Decision.Skip("auto-connect is off")
+        if (soundConnected) return Decision.Skip("already connected")
+        if (!retry && weAskedRecently) return Decision.Skip("link came from our own connect")
+        if (connecting) return Decision.Skip("Android is connecting")
+        if (!retry && lastLinkTry != null && now - lastLinkTry!! < 3_000) return Decision.Skip("just tried")
+        lastLinkTry = now
+        attempts = 1 // a broadcast after this counts as the quick retry
+        lastAttempt = now
+        return Decision.Connect(if (retry) "AirPods linked by themselves (again)" else "AirPods linked by themselves")
+    }
+
     /** One status broadcast heard at [now]. */
     fun onFrame(
         now: Long, lid: Lid, rssi: Int,

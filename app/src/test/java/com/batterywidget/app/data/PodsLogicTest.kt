@@ -231,3 +231,31 @@ class ScanBudgetSimulationTest {
         }
     }
 }
+
+/** Your 00:31 log: the AirPods link up by themselves for 3 s when the lid opens, with no broadcasts. */
+class LinkedByThemselvesSimulationTest {
+    @Test fun `AirPods link up on their own - connect at once, once more 1,5 s later`() {
+        val p = AutoConnectPolicy()
+        val first = p.onLinked(0, enabled = true, soundConnected = false, connecting = false, weAskedRecently = false)
+        assertEquals("AirPods linked by themselves", (first as Decision.Connect).reason)
+        val again = p.onLinked(1_900, enabled = true, soundConnected = false, connecting = false, weAskedRecently = true, retry = true)
+        assertTrue(again is Decision.Connect)
+    }
+
+    @Test fun `link we caused with the button is not doubled`() {
+        val p = AutoConnectPolicy()
+        assertTrue(p.onLinked(0, true, false, false, weAskedRecently = true) is Decision.Skip)
+    }
+
+    @Test fun `already connected or switched off - nothing`() {
+        assertTrue(AutoConnectPolicy().onLinked(0, true, soundConnected = true, connecting = false, weAskedRecently = false) is Decision.Skip)
+        assertTrue(AutoConnectPolicy().onLinked(0, enabled = false, soundConnected = false, connecting = false, weAskedRecently = false) is Decision.Skip)
+    }
+
+    @Test fun `link flapping twice within 3 s only tries once`() {
+        val p = AutoConnectPolicy()
+        assertTrue(p.onLinked(0, true, false, false, false) is Decision.Connect)
+        assertTrue(p.onLinked(2_500, true, false, false, false) is Decision.Skip)
+        assertTrue(p.onLinked(2 * 60_000L, true, false, false, false) is Decision.Connect) // next lid open
+    }
+}
