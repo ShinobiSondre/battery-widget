@@ -64,7 +64,6 @@ class AirPodsService : Service() {
                 // stuck, so screen-ons don't use up Android's 5-starts-in-30-seconds limit.
                 Intent.ACTION_USER_PRESENT -> PodsConnector.onUnlock(ctx)
                 Intent.ACTION_SCREEN_ON -> {
-                    PodsConnector.startWatch(ctx)
                     if (quietFor() > 60_000) restartScan("screen on, scan was quiet")
                 }
                 // Phone battery and charger: redraw right away when something visible changes.
@@ -123,7 +122,6 @@ class AirPodsService : Service() {
         Prefs.addEvent(this, "listener started (${Perms.situation(this)})")
         if (!goForeground()) { stopSelf(); return }
         PodsConnector.prepare(this)
-        PodsConnector.startWatch(this)
         handler.postDelayed({ if (PodsConnector.soundConnected(this)) AapClient.start(this) }, 1_500)
         val f = IntentFilter().apply {
             addAction(BluetoothAdapter.ACTION_STATE_CHANGED)
@@ -231,6 +229,7 @@ class AirPodsService : Service() {
             AirPods.startSystemScan(this, force = true)
             PodsConnector.reopen(this) {
                 if (PodsConnector.soundConnected(this)) AapClient.start(this)
+                else PodsConnector.connectAfterRestart(this, why)
             }
         }, 400)
     }

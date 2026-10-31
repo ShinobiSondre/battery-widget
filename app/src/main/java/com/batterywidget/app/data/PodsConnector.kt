@@ -265,7 +265,23 @@ object PodsConnector {
         val app = ctx.applicationContext
         if (!Prefs.alwaysListen(app) || !Prefs.autoConnect(app) || soundConnected(app)) return
         lastQuickRestart = now
-        AirPodsService.instance?.quickRestart("Find My $rssi dBm")
+        val svc = AirPodsService.instance
+        if (svc != null) svc.quickRestart("Find My $rssi dBm")
+        else reopen(app) { connectAfterRestart(app, "Find My $rssi dBm") }
+    }
+
+    /** After the restart: connect like the button does, and once more 3 s later if it didn't take. */
+    fun connectAfterRestart(ctx: Context, why: String) {
+        val app = ctx.applicationContext
+        if (soundConnected(app)) return
+        pressConnect(app) { ok ->
+            Prefs.addEvent(app, "$why: " + if (ok) "asked Android to connect" else "Android refused to connect")
+            main.postDelayed({
+                if (!soundConnected(app) && !connecting(app)) pressConnect(app) { ok2 ->
+                    Prefs.addEvent(app, "$why (again): " + if (ok2) "asked Android to connect" else "Android refused to connect")
+                }
+            }, 3_000)
+        }
     }
 
     private fun screenOn(app: Context) =
