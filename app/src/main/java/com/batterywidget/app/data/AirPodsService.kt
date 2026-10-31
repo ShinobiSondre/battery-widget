@@ -112,15 +112,28 @@ class AirPodsService : Service() {
         val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
         val scanner = if (adapter != null && adapter.isEnabled) adapter.bluetoothLeScanner else null
         if (scanner == null) { Prefs.setListenerNote(this, "Bluetooth is off"); return }
-        val filter = ScanFilter.Builder()
-            .setManufacturerData(AirPods.APPLE, ByteArray(0)) // any Apple broadcast; sorted out in code
+        // Same approach as CAPod: only let the Bluetooth chip pre-filter when the phone says it can.
+        // Phones that can't would otherwise return nothing at all, so there we listen to
+        // everything and pick out the AirPods messages in code.
+        val hwFilter = try { adapter.isOffloadedFilteringSupported } catch (_: Exception) { false }
+        val filters = if (hwFilter) listOf(
+            ScanFilter.Builder().setManufacturerData(
+                AirPods.APPLE,
+                ByteArray(27).also { it[0] = 0x07; it[1] = 0x19 },
+                ByteArray(27).also { it[0] = 1; it[1] = 1 }
+            ).build()
+        ) else emptyList()
+        val settings = ScanSettings.Builder()
+            .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
+            .setScanMode(ScanSettings.SCAN_MODE_BALANCED)
+            .setMatchMode(ScanSettings.MATCH_MODE_STICKY)
+            .setNumOfMatches(ScanSettings.MATCH_NUM_MAX_ADVERTISEMENT)
             .build()
-        val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build()
         try {
             if (scanning) scanner.stopScan(callback)
-            scanner.startScan(listOf(filter), settings, callback)
+            scanner.startScan(filters, settings, callback)
+            Prefs.setListenerNote(this, if (hwFilter) "Listening (chip filter)" else "Listening (all signals)")
             scanning = true
-            if (Prefs.lastHeard(this) == 0L) Prefs.setListenerNote(this, "Listening for AirPods…")
         } catch (e: Exception) {
             Prefs.setListenerNote(this, "Couldn't scan: ${e.javaClass.simpleName}")
         }

@@ -252,13 +252,13 @@ private fun listenerStatus(ctx: android.content.Context): String {
     if (!Perms.all(ctx)) return "Tap Allow above first"
     val heard = Prefs.lastHeard(ctx)
     val note = Prefs.listenerNote(ctx)
-    val on = if (AirPodsService.running) "Listening" else "Not running"
+    val on = if (AirPodsService.running) note.ifBlank { "Listening" } else "Not running"
     return if (heard > 0L) {
         val secs = (System.currentTimeMillis() - heard) / 1000
         val ago = when { secs < 60 -> "${secs}s"; secs < 3600 -> "${secs / 60} min"; else -> "${secs / 3600} h" }
         "$on · AirPods last heard $ago ago (signal ${Prefs.lastRssi(ctx)})"
     } else if (AirPodsService.running) "$on · not heard yet. Take the AirPods out or open the case lid near the phone."
-    else "$on · $note"
+    else "$on · ${note.ifBlank { "open the app to start it" }}"
 }
 
 @Composable
