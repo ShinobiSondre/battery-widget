@@ -236,3 +236,38 @@ class DisconnectPause(private val silenceMs: Long = 8_000) {
     /** The AirPods themselves reached out, or you asked explicitly: they're wanted. */
     fun clear() { paused = false }
 }
+
+/**
+ * For AirPods that never say when the lid opens (like Pro 3 on a Samsung): while the screen is
+ * on and their Find My signal is around, try connecting every [intervalMs]. Tries while the case
+ * is closed just fail quietly; the first one after the lid opens connects.
+ */
+class ScreenOnWatch(
+    private val intervalMs: Long = 3_000,
+    private val seenWithinMs: Long = 60_000,
+    private val afterDisconnectMs: Long = 60_000,
+) {
+    private var lastTry: Long? = null
+    private var disconnectedAt: Long? = null
+
+    fun onDisconnected(now: Long) { disconnectedAt = now }
+
+    /** Returns null to try now, or the reason it's not trying. */
+    fun check(
+        now: Long, screenOn: Boolean, enabled: Boolean, connected: Boolean, connecting: Boolean,
+        otherAudio: Boolean, lastSeenAt: Long?,
+    ): String? {
+        if (!enabled) return "auto-connect is off"
+        if (!screenOn) return "screen off"
+        if (connected) return "already connected"
+        if (connecting) return "Android is connecting"
+        if (otherAudio) return "another headset or car is connected"
+        val d = disconnectedAt
+        if (d != null && now - d < afterDisconnectMs) return "just disconnected"
+        if (lastSeenAt == null || now - lastSeenAt > seenWithinMs) return "AirPods not nearby"
+        val last = lastTry
+        if (last != null && now - last < intervalMs - 200) return "waiting"
+        lastTry = now
+        return null
+    }
+}

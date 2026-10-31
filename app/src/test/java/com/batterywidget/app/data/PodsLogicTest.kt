@@ -314,3 +314,33 @@ class DisconnectPauseTest {
         assertTrue(!p.paused)
     }
 }
+
+class ScreenOnWatchTest {
+    private fun ScreenOnWatch.at(now: Long, screenOn: Boolean = true, connected: Boolean = false, connecting: Boolean = false,
+                                 otherAudio: Boolean = false, seen: Long? = now) =
+        check(now, screenOn, true, connected, connecting, otherAudio, seen)
+
+    @Test fun `tries every 3 s while the screen is on and the AirPods are around`() {
+        val w = ScreenOnWatch()
+        assertNull(w.at(0))
+        assertEquals("waiting", w.at(1_000))
+        assertNull(w.at(3_000))
+        assertNull(w.at(6_000))
+    }
+
+    @Test fun `never tries when connected, connecting, screen off or another headset is on`() {
+        val w = ScreenOnWatch()
+        assertEquals("already connected", w.at(0, connected = true))
+        assertEquals("Android is connecting", w.at(0, connecting = true))
+        assertEquals("screen off", w.at(0, screenOn = false))
+        assertEquals("another headset or car is connected", w.at(0, otherAudio = true))
+    }
+
+    @Test fun `waits a minute after a disconnect, and needs the AirPods nearby`() {
+        val w = ScreenOnWatch()
+        w.onDisconnected(0)
+        assertEquals("just disconnected", w.at(30_000))
+        assertNull(w.at(61_000))
+        assertEquals("AirPods not nearby", ScreenOnWatch().at(200_000, seen = 100_000))
+    }
+}

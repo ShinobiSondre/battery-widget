@@ -191,7 +191,7 @@ object PodsConnector {
     private fun startWindow(app: Context, why: String, explicit: Boolean = false) {
         if (!Prefs.autoConnect(app) || pairedPods(app) == null) return
         if (explicit) pause.clear()
-        if (pause.paused) { Prefs.addEvent(app, "auto-connect: waiting (you disconnected them), skipped $why"); return }
+
         if (soundConnected(app)) return
         if (window.start(System.currentTimeMillis(), why)) {
             triesThisWindow = 0
@@ -232,8 +232,64 @@ object PodsConnector {
     fun onUnlinked(ctx: Context) {
         val app = ctx.applicationContext
         if (window.active) window.stop()
-        pause.onDisconnected()
-        Prefs.addEvent(app, "auto-connect paused until the case closes or the AirPods reach out")
+        watch.onDisconnected(System.currentTimeMillis())
+        Prefs.addEvent(app, "AirPods disconnected: auto-connect waits 60 s")
+    }
+
+    // ---- Screen-on watch: for AirPods that never announce the lid opening ----
+    private val watch = ScreenOnWatch()
+    @Volatile private var findMyAt = 0L
+    @Volatile private var watching = false
+    @Volatile private var watchTries = 0
+    @Volatile private var lastWatchReason = ""
+
+    /** The AirPods' Find My signal was heard (they send it all the time, case open or closed). */
+    fun sawFindMy(now: Long) { findMyAt = now }
+
+    private fun screenOn(app: Context) =
+        (app.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager).isInteractive
+
+    /** Another headset, speaker or car is connected for sound: leave things as they are. */
+    private fun otherAudio(app: Context): Boolean {
+        val pods = pairedPods(app)?.address ?: return false
+        return try {
+            listOfNotNull(headset, a2dp).any { p -> p.connectedDevices.any { it.address != pods } }
+        } catch (_: SecurityException) { false }
+    }
+
+    /** Starts the every-3-seconds check while the screen is on (called on screen on / app start). */
+    fun startWatch(ctx: Context) {
+        val app = ctx.applicationContext
+        if (watching) return
+        watching = true
+        prepare(app)
+        watchTick(app)
+    }
+
+    private fun watchTick(app: Context) {
+        val now = System.currentTimeMillis()
+        val on = screenOn(app)
+        val why = watch.check(
+            now, on, Prefs.autoConnect(app), soundConnected(app), connecting(app), otherAudio(app),
+            if (findMyAt == 0L) null else findMyAt
+        )
+        if (why == null) {
+            watchTries++
+            if (watchTries == 1) Prefs.addEvent(app, "AirPods nearby, not connected: trying every 3 s")
+            connectTappedAt = now // keeps the widget's connect button hidden meanwhile
+            val ok = connect(app)
+            note(app, "try $watchTries: ${if (ok) "asked Android" else "refused"}")
+        } else if (why != "waiting") {
+            if (watchTries > 0) {
+                Prefs.addEvent(app, "stopped trying after $watchTries tries: $why")
+                if (why == "already connected") note(app, "connected after $watchTries tries")
+                watchTries = 0
+                WidgetUpdater.updateAll(app)
+            }
+            if (why != lastWatchReason && why != "screen off") lastWatchReason = why
+        }
+        if (!on) { watching = false; return } // screen off: sleep until it turns on again
+        main.postDelayed({ watchTick(app) }, 3_000)
     }
 
     /** Any strong Apple signal right next to the phone: the AirPods are probably nearby. */
