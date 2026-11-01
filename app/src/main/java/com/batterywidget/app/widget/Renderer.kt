@@ -95,31 +95,35 @@ object Renderer {
 
     /** The glow is drawn as this many frames; the widget flips through them [FRAME_MS] apart. */
     const val GLOW_FRAMES = 30
-    const val FRAME_MS = 36
+    const val FRAME_MS = 40
 
     private const val SPARK_CORE = 0xFFFFF4D6.toInt()
 
-    /** Low battery: flickers like a failing light (one value per frame, 0 = dark). */
-    private val FLICKER = floatArrayOf(1f, 0.15f, 1f, 0.9f, 0f, 1f, 0.5f, 1f, 0f, 0.8f, 1f, 0.3f)
+    private const val SHINE = 0xFFFDE68A.toInt()
+
+    /** Where we are in the loop, 0..1. */
+    private fun phase(frame: Int) = frame / GLOW_FRAMES.toFloat()
+
+    /** Low battery sends out two sonar ripples per loop; this is how far along the newest one is (0..1). */
+    private fun ripple(frame: Int, k: Int = 0) = (phase(frame) * 2 + k * 0.5f) % 1f
 
     /**
      * How strongly an item glows in a given frame (0 = not at all):
-     * charging = always (plasma ripples along the filled part, with a faint live bolt),
-     * low = a warning flicker,
+     * charging = always (a neon shine sweeps along the filled part),
+     * low = sonar ripples going out from the ring,
      * nearing low = a calm breathing glow.
      */
     private fun glowStrength(i: Item, frame: Int): Float = when {
         i.charging -> 1f
-        i.level in 0..20 -> FLICKER[(frame * FLICKER.size / GLOW_FRAMES) % FLICKER.size]
+        i.level in 0..20 -> 0.3f + 0.7f * (1 - ripple(frame)).let { it * it }
         i.level in 21..35 -> 0.5f - 0.5f * kotlin.math.cos(2 * Math.PI * frame / GLOW_FRAMES).toFloat()
         else -> 0f
     }
 
     private fun glowOn(i: Item, frame: Int) = glowStrength(i, frame) > 0.02f
 
-    /** Plasma brightness of segment [s] in [frame]: a wave travelling along the filled part. */
-    private fun plasma(frame: Int, s: Int): Float =
-        0.5f + 0.5f * kotlin.math.sin(2 * Math.PI * frame / GLOW_FRAMES - s * 0.55).toFloat()
+    /** Charging pulse used for the big number and chips. */
+    private fun shinePulse(frame: Int) = 0.5f + 0.5f * kotlin.math.sin(2 * Math.PI * phase(frame)).toFloat()
 
     private fun withAlpha(tint: Int, a: Float) =
         Color.argb((255 * a.coerceIn(0f, 1f)).toInt(), Color.red(tint), Color.green(tint), Color.blue(tint))
@@ -257,14 +261,28 @@ object Renderer {
                 if (it.level <= 0 || !glowOn(it, x.frame)) return@forEachIndexed
                 val sweep = 360f * it.level / 100f
                 if (it.charging) {
-                    // Plasma: brightness ripples along the arc, plus a faint live bolt.
-                    val segs = 28
-                    val p = x.halo(stroke * 1.6f, g).apply { strokeCap = Paint.Cap.BUTT }
-                    for (s in 0 until segs) {
-                        p.color = withAlpha(g, 0.2f + 0.6f * plasma(x.frame, s))
-                        x.c.drawArc(oval, -90f + sweep * s / segs, sweep / segs + 0.6f, false, p)
+                    // Neon shine: a steady glow with a bright white-gold shine sweeping along it.
+                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.3f, g).apply { color = withAlpha(g, 0.45f) })
+                    val end = -90f + sweep
+                    val head = -90f - 35f + (sweep + 70f) * phase(x.frame)
+                    fun seg(half: Float, paint: Paint) {
+                        val from = maxOf(-90f, head - half); val to = minOf(end, head + half)
+                        if (to > from) x.c.drawArc(oval, from, to - from, false, paint)
                     }
-                    electricArc(x, cx, cy, r, sweep, stroke, g, x.frame * 17 + 3 + i * 7, 0.45f)
+                    seg(26f, x.halo(stroke * 0.9f, SHINE).apply { color = withAlpha(SHINE, 0.95f) })
+                    seg(7f, x.halo(stroke * 0.35f, WHITE).apply {
+                        color = withAlpha(WHITE, 0.9f); maskFilter = BlurMaskFilter(2 * x.d, BlurMaskFilter.Blur.NORMAL)
+                    })
+                } else if (it.level <= 20) {
+                    // Sonar: the filled part glows and two red rings ripple outward.
+                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.3f, g).apply { color = withAlpha(g, 0.4f) })
+                    for (k in 0..1) {
+                        val q = ripple(x.frame, k)
+                        val ring = x.halo(stroke * (0.25f * (1 - q) + 0.04f), g).apply {
+                            color = withAlpha(g, 0.8f * (1 - q)); maskFilter = BlurMaskFilter(3 * x.d, BlurMaskFilter.Blur.NORMAL)
+                        }
+                        x.c.drawCircle(cx, cy, r + stroke * 0.6f + q * stroke * 2.5f, ring)
+                    }
                 } else {
                     val k = glowStrength(it, x.frame)
                     x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.8f, g).apply { color = withAlpha(g, 0.85f * k) })
@@ -326,13 +344,29 @@ object Renderer {
                 val end = (barLeft + (barRight - barLeft) * it.level / 100f).coerceAtLeast(barLeft + barH)
                 if (it.charging) {
                     val x0 = barLeft + r; val x1 = end - r
-                    val segs = maxOf(4, ((x1 - x0) / (6 * d)).toInt())
-                    val p = x.halo(barH * 1.5f, g).apply { strokeCap = Paint.Cap.BUTT }
-                    for (s in 0 until segs) {
-                        p.color = withAlpha(g, 0.2f + 0.6f * plasma(x.frame, s))
-                        x.c.drawLine(x0 + (x1 - x0) * s / segs, cy, x0 + (x1 - x0) * (s + 1) / segs, cy, p)
+                    x.c.drawLine(x0, cy, x1, cy, x.halo(barH * 1.3f, g).apply { color = withAlpha(g, 0.45f) })
+                    val len = x1 - x0
+                    val hw = maxOf(len * 0.12f, 8 * d)
+                    val head = x0 - hw + (len + 2 * hw) * phase(x.frame)
+                    fun seg(half: Float, paint: Paint) {
+                        val a0 = maxOf(x0, head - half); val a1 = minOf(x1, head + half)
+                        if (a1 > a0) x.c.drawLine(a0, cy, a1, cy, paint)
                     }
-                    electricLine(x, x0, x1, cy, barH, g, x.frame * 17 + 3 + i * 7, 0.45f)
+                    seg(hw, x.halo(barH * 0.9f, SHINE).apply { color = withAlpha(SHINE, 0.95f) })
+                    seg(hw * 0.3f, x.halo(barH * 0.35f, WHITE).apply {
+                        color = withAlpha(WHITE, 0.9f); maskFilter = BlurMaskFilter(2 * d, BlurMaskFilter.Blur.NORMAL)
+                    })
+                } else if (it.level <= 20) {
+                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.3f, g).apply { color = withAlpha(g, 0.4f) })
+                    for (k in 0..1) {
+                        val q = ripple(x.frame, k)
+                        val grow = barH * 0.4f + q * barH * 2f
+                        val box = RectF(barLeft - grow, cy - r - grow, end + grow, cy + r + grow)
+                        val ring = x.halo(barH * (0.3f * (1 - q) + 0.06f), g).apply {
+                            color = withAlpha(g, 0.8f * (1 - q)); maskFilter = BlurMaskFilter(2 * d, BlurMaskFilter.Blur.NORMAL)
+                        }
+                        x.c.drawRoundRect(box, r + grow, r + grow, ring)
+                    }
                 } else {
                     val k = glowStrength(it, x.frame)
                     x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.8f, g).apply { color = withAlpha(g, 0.85f * k) })
@@ -393,7 +427,7 @@ object Renderer {
                 val g = x.text(numSize, bold = true, color = gc).apply {
                     clearShadowLayer(); maskFilter = BlurMaskFilter(8 * d, BlurMaskFilter.Blur.NORMAL)
                 }
-                g.alpha = (255 * if (low.charging) 0.35f + 0.65f * plasma(x.frame, 0) else glowStrength(low, x.frame)).toInt()
+                g.alpha = (255 * if (low.charging) 0.35f + 0.65f * shinePulse(x.frame) else glowStrength(low, x.frame)).toInt()
                 x.c.drawText(t, a.left, numY, g)
             }
         } else {
@@ -420,7 +454,7 @@ object Renderer {
             if (x.glow) {
                 val g = glowColor(it)
                 if (g != null && glowOn(it, x.frame)) {
-                    val k = if (it.charging) 0.3f + 0.7f * plasma(x.frame, 0) else glowStrength(it, x.frame)
+                    val k = if (it.charging) 0.3f + 0.7f * shinePulse(x.frame) else glowStrength(it, x.frame)
                     x.c.drawRoundRect(chip, chipH / 2f, chipH / 2f, x.halo(2.5f * d, g).apply { color = withAlpha(g, 0.85f * k) })
                 }
             } else {
