@@ -15,6 +15,10 @@ object Prefs {
         runCatching { WidgetStyle.valueOf(sp(c).getString("style", null) ?: "BARS") }.getOrDefault(WidgetStyle.BARS)
     fun setStyle(c: Context, s: WidgetStyle) = sp(c).edit().putString("style", s.name).apply()
 
+    /** Glow animations on the widget (charging / low battery). */
+    fun animations(c: Context) = sp(c).getBoolean("animations", true)
+    fun setAnimations(c: Context, v: Boolean) = sp(c).edit().putBoolean("animations", v).apply()
+
     fun savePods(c: Context, p: PodsReading, source: PodsSource) = sp(c).edit()
         .putString("pods_src", source.name)
         .putInt("pods_l", p.left).putInt("pods_r", p.right).putInt("pods_c", p.case)

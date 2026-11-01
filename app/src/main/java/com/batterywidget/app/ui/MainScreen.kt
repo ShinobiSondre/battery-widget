@@ -104,6 +104,7 @@ fun MainScreen() {
     val scope = rememberCoroutineScope()
     var opacity by remember { mutableIntStateOf(Prefs.opacity(ctx)) }
     var style by remember { mutableStateOf(Prefs.style(ctx)) }
+    var anim by remember { mutableStateOf(Prefs.animations(ctx)) }
     var items by remember { mutableStateOf(Devices.read(ctx)) }
     var hasPerms by remember { mutableStateOf(Perms.all(ctx)) }
     var locationOn by remember { mutableStateOf(Perms.locationOn(ctx)) }
@@ -186,8 +187,8 @@ fun MainScreen() {
             val preview = remember(items, style, opacity, wDp, joined) {
                 Renderer.render(items, style, opacity, wDp, hDp, density, highlight = joined).asImageBitmap()
             }
-            val glowFrames = remember(items, style, opacity, wDp) {
-                if (Renderer.anyGlow(items)) (0 until Renderer.GLOW_FRAMES).map { f ->
+            val glowFrames = remember(items, style, opacity, wDp, anim) {
+                if (anim && Renderer.anyGlow(items)) (0 until Renderer.GLOW_FRAMES).map { f ->
                     Renderer.render(items, style, opacity, wDp, hDp, density, Renderer.Layer.GLOW, frame = f).asImageBitmap()
                 } else emptyList()
             }
@@ -245,6 +246,17 @@ fun MainScreen() {
                         OutlinedButton(onClick = pick, modifier = Modifier.weight(1f).height(48.dp)) { Text(s.label, color = Color.White) }
                     }
                 }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Animations", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text("Glow while charging and when the battery is low", color = Muted, fontSize = 13.sp)
+                }
+                Switch(checked = anim, onCheckedChange = {
+                    anim = it
+                    Prefs.setAnimations(ctx, it)
+                    WidgetUpdater.updateAll(ctx)
+                })
             }
         }
 

@@ -94,8 +94,8 @@ object Renderer {
     fun anyGlow(items: List<Item>) = items.any { glowColor(it) != null }
 
     /** The glow is drawn as this many frames; the widget flips through them [FRAME_MS] apart. */
-    const val GLOW_FRAMES = 30
-    const val FRAME_MS = 40
+    const val GLOW_FRAMES = 20
+    const val FRAME_MS = 60
 
     private const val SPARK_CORE = 0xFFFFF4D6.toInt()
 

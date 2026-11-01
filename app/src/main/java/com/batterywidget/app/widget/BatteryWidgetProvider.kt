@@ -166,7 +166,7 @@ object WidgetUpdater {
         val style = Prefs.style(ctx)
         val opacity = Prefs.opacity(ctx)
         val density = ctx.resources.displayMetrics.density
-        val charging = Renderer.anyGlow(items)
+        val charging = Renderer.anyGlow(items) && Prefs.animations(ctx)
         val offerConnect = PodsConnector.canOffer(ctx)
         for (id in ids) {
             val o = mgr.getAppWidgetOptions(id)
@@ -174,7 +174,7 @@ object WidgetUpdater {
             val wDp = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: 250
             val hDp = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 160
             // Nothing changed? Then don't redraw (and don't play a crossfade for nothing).
-            val sig = "${items.joinToString { "${it.name}:${it.level}:${it.charging}" }}|$style|$opacity|$wDp|$hDp|$highlight|$offerConnect"
+            val sig = "${items.joinToString { "${it.name}:${it.level}:${it.charging}" }}|$style|$opacity|$wDp|$hDp|$highlight|$offerConnect|$charging"
             val firstTime = !Prefs.widgetDrawn(ctx, id)
             if (!full && !firstTime && sig == Prefs.widgetSig(ctx, id)) continue
 
@@ -197,7 +197,7 @@ object WidgetUpdater {
             // The glow frames are drawn smaller (they're soft anyway) to keep the widget light.
             val glow = if (charging) {
                 (0 until Renderer.GLOW_FRAMES).map { f ->
-                    Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale * 0.35f, Renderer.Layer.GLOW, frame = f)
+                    Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale * 0.5f, Renderer.Layer.GLOW, frame = f)
                 }
             } else null
 
