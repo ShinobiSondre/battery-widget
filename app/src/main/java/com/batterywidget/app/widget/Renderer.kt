@@ -94,8 +94,8 @@ object Renderer {
     fun anyGlow(items: List<Item>) = items.any { glowColor(it) != null }
 
     /** The glow is drawn as this many frames; the widget flips through them [FRAME_MS] apart. */
-    const val GLOW_FRAMES = 12
-    const val FRAME_MS = 90
+    const val GLOW_FRAMES = 30
+    const val FRAME_MS = 36
 
     private const val SPARK_CORE = 0xFFFFF4D6.toInt()
 
@@ -110,7 +110,7 @@ object Renderer {
      */
     private fun glowStrength(i: Item, frame: Int): Float = when {
         i.charging -> 1f
-        i.level in 0..20 -> FLICKER[frame % FLICKER.size]
+        i.level in 0..20 -> FLICKER[(frame * FLICKER.size / GLOW_FRAMES) % FLICKER.size]
         i.level in 21..35 -> 0.5f - 0.5f * kotlin.math.cos(2 * Math.PI * frame / GLOW_FRAMES).toFloat()
         else -> 0f
     }

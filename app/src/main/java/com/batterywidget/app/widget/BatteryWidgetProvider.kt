@@ -197,7 +197,7 @@ object WidgetUpdater {
             // The glow frames are drawn smaller (they're soft anyway) to keep the widget light.
             val glow = if (charging) {
                 (0 until Renderer.GLOW_FRAMES).map { f ->
-                    Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale * 0.5f, Renderer.Layer.GLOW, frame = f)
+                    Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale * 0.35f, Renderer.Layer.GLOW, frame = f)
                 }
             } else null
 
@@ -205,11 +205,9 @@ object WidgetUpdater {
             views.setViewVisibility(R.id.widget_connect, if (offerConnect) View.VISIBLE else View.GONE)
             if (offerConnect) views.setOnClickPendingIntent(R.id.widget_connect, connectIntent(ctx))
             if (glow != null) {
-                val frameIds = intArrayOf(
-                    R.id.widget_glow0, R.id.widget_glow1, R.id.widget_glow2, R.id.widget_glow3,
-                    R.id.widget_glow4, R.id.widget_glow5, R.id.widget_glow6, R.id.widget_glow7,
-                    R.id.widget_glow8, R.id.widget_glow9, R.id.widget_glow10, R.id.widget_glow11
-                )
+                val frameIds = IntArray(Renderer.GLOW_FRAMES) { f ->
+                    ctx.resources.getIdentifier("widget_glow$f", "id", ctx.packageName)
+                }
                 glow.forEachIndexed { f, b -> views.setImageViewBitmap(frameIds[f], b) }
                 views.setViewVisibility(R.id.widget_glow, View.VISIBLE)
             } else {
