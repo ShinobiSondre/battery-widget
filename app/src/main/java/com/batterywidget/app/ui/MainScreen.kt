@@ -203,7 +203,7 @@ fun MainScreen() {
                     Image(img, contentDescription = "Widget preview", modifier = Modifier.fillMaxSize())
                 }
                 if (glowFrames.isNotEmpty()) {
-                    Crossfade(targetState = glowFrame, animationSpec = tween(90), label = "glow") { f ->
+                    Crossfade(targetState = glowFrame, animationSpec = tween(Renderer.FRAME_MS), label = "glow") { f ->
                         Image(glowFrames[f % glowFrames.size], contentDescription = null, modifier = Modifier.fillMaxSize())
                     }
                 }

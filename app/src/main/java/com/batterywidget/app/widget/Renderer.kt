@@ -94,23 +94,35 @@ object Renderer {
     fun anyGlow(items: List<Item>) = items.any { glowColor(it) != null }
 
     /** The glow is drawn as this many frames; the widget flips through them [FRAME_MS] apart. */
-    const val GLOW_FRAMES = 6
-    const val FRAME_MS = 160
+    const val GLOW_FRAMES = 12
+    const val FRAME_MS = 90
 
     private const val SPARK_CORE = 0xFFFFF4D6.toInt()
 
+    /** Low battery: flickers like a failing light (one value per frame, 0 = dark). */
+    private val FLICKER = floatArrayOf(1f, 0.15f, 1f, 0.9f, 0f, 1f, 0.5f, 1f, 0f, 0.8f, 1f, 0.3f)
+
     /**
-     * Whether an item glows in a given frame:
-     * charging = always (each frame a different electric bolt),
-     * low = a heartbeat (two quick beats, then a pause),
-     * nearing low = a calm blink.
+     * How strongly an item glows in a given frame (0 = not at all):
+     * charging = always (plasma ripples along the filled part, with a faint live bolt),
+     * low = a warning flicker,
+     * nearing low = a calm breathing glow.
      */
-    private fun glowOn(i: Item, frame: Int): Boolean = when {
-        i.charging -> true
-        i.level in 0..20 -> frame == 0 || frame == 2
-        i.level in 21..35 -> frame < 3
-        else -> false
+    private fun glowStrength(i: Item, frame: Int): Float = when {
+        i.charging -> 1f
+        i.level in 0..20 -> FLICKER[frame % FLICKER.size]
+        i.level in 21..35 -> 0.5f - 0.5f * kotlin.math.cos(2 * Math.PI * frame / GLOW_FRAMES).toFloat()
+        else -> 0f
     }
+
+    private fun glowOn(i: Item, frame: Int) = glowStrength(i, frame) > 0.02f
+
+    /** Plasma brightness of segment [s] in [frame]: a wave travelling along the filled part. */
+    private fun plasma(frame: Int, s: Int): Float =
+        0.5f + 0.5f * kotlin.math.sin(2 * Math.PI * frame / GLOW_FRAMES - s * 0.55).toFloat()
+
+    private fun withAlpha(tint: Int, a: Float) =
+        Color.argb((255 * a.coerceIn(0f, 1f)).toInt(), Color.red(tint), Color.green(tint), Color.blue(tint))
 
     private class Ctx(
         val c: Canvas, val d: Float, val shadow: Boolean, val glow: Boolean, val highlight: Set<String>,
@@ -145,7 +157,7 @@ object Renderer {
     }
 
     /** A jagged electric bolt along the filled arc, with a soft glow and a couple of sparks. */
-    private fun electricArc(x: Ctx, cx: Float, cy: Float, r: Float, sweep: Float, stroke: Float, tint: Int, seed: Int) {
+    private fun electricArc(x: Ctx, cx: Float, cy: Float, r: Float, sweep: Float, stroke: Float, tint: Int, seed: Int, strength: Float = 1f) {
         val rnd = java.util.Random(seed.toLong())
         val pts = mutableListOf<Pair<Float, Float>>()
         val steps = maxOf(4, (sweep / 8f).toInt())
@@ -155,11 +167,11 @@ object Renderer {
             val rr = r + off
             pts += (cx + rr * kotlin.math.cos(a)).toFloat() to (cy + rr * kotlin.math.sin(a)).toFloat()
         }
-        drawBolt(x, pts, stroke, tint, rnd)
+        drawBolt(x, pts, stroke, tint, rnd, strength)
     }
 
     /** The same along a straight bar. */
-    private fun electricLine(x: Ctx, x0: Float, x1: Float, y: Float, thick: Float, tint: Int, seed: Int) {
+    private fun electricLine(x: Ctx, x0: Float, x1: Float, y: Float, thick: Float, tint: Int, seed: Int, strength: Float = 1f) {
         val rnd = java.util.Random(seed.toLong())
         val pts = mutableListOf<Pair<Float, Float>>()
         val steps = maxOf(3, ((x1 - x0) / (5 * x.d)).toInt())
@@ -167,10 +179,10 @@ object Renderer {
             val off = if (s == 0 || s == steps) 0f else (rnd.nextFloat() * 2 - 1) * thick * 0.95f
             pts += (x0 + (x1 - x0) * s / steps) to (y + off)
         }
-        drawBolt(x, pts, thick, tint, rnd)
+        drawBolt(x, pts, thick, tint, rnd, strength)
     }
 
-    private fun drawBolt(x: Ctx, pts: List<Pair<Float, Float>>, width: Float, tint: Int, rnd: java.util.Random) {
+    private fun drawBolt(x: Ctx, pts: List<Pair<Float, Float>>, width: Float, tint: Int, rnd: java.util.Random, strength: Float = 1f) {
         if (pts.size < 2) return
         val path = android.graphics.Path()
         path.moveTo(pts[0].first, pts[0].second)
@@ -178,13 +190,14 @@ object Renderer {
         val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = width * 1.5f
             strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-            color = Color.argb(190, Color.red(tint), Color.green(tint), Color.blue(tint))
+            color = withAlpha(tint, 0.75f * strength)
             maskFilter = BlurMaskFilter(4 * x.d, BlurMaskFilter.Blur.NORMAL)
         }
         val core = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = maxOf(1.2f * x.d, width * 0.28f)
             strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
             color = SPARK_CORE
+            alpha = (255 * strength).toInt()
         }
         x.c.drawPath(path, glow)
         x.c.drawPath(path, core)
@@ -244,10 +257,17 @@ object Renderer {
                 if (it.level <= 0 || !glowOn(it, x.frame)) return@forEachIndexed
                 val sweep = 360f * it.level / 100f
                 if (it.charging) {
-                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.4f, g).apply { alpha = 110 })
-                    electricArc(x, cx, cy, r, sweep, stroke, g, x.frame * 31 + i * 7)
+                    // Plasma: brightness ripples along the arc, plus a faint live bolt.
+                    val segs = 28
+                    val p = x.halo(stroke * 1.6f, g).apply { strokeCap = Paint.Cap.BUTT }
+                    for (s in 0 until segs) {
+                        p.color = withAlpha(g, 0.2f + 0.6f * plasma(x.frame, s))
+                        x.c.drawArc(oval, -90f + sweep * s / segs, sweep / segs + 0.6f, false, p)
+                    }
+                    electricArc(x, cx, cy, r, sweep, stroke, g, x.frame * 17 + 3 + i * 7, 0.45f)
                 } else {
-                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 2f, g))
+                    val k = glowStrength(it, x.frame)
+                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.8f, g).apply { color = withAlpha(g, 0.85f * k) })
                 }
                 return@forEachIndexed
             }
@@ -305,10 +325,17 @@ object Renderer {
                 if (!hasBar || it.level <= 0 || !glowOn(it, x.frame)) return@forEachIndexed
                 val end = (barLeft + (barRight - barLeft) * it.level / 100f).coerceAtLeast(barLeft + barH)
                 if (it.charging) {
-                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.3f, g).apply { alpha = 110 })
-                    electricLine(x, barLeft + r, end - r, cy, barH, g, x.frame * 31 + i * 7)
+                    val x0 = barLeft + r; val x1 = end - r
+                    val segs = maxOf(4, ((x1 - x0) / (6 * d)).toInt())
+                    val p = x.halo(barH * 1.5f, g).apply { strokeCap = Paint.Cap.BUTT }
+                    for (s in 0 until segs) {
+                        p.color = withAlpha(g, 0.2f + 0.6f * plasma(x.frame, s))
+                        x.c.drawLine(x0 + (x1 - x0) * s / segs, cy, x0 + (x1 - x0) * (s + 1) / segs, cy, p)
+                    }
+                    electricLine(x, x0, x1, cy, barH, g, x.frame * 17 + 3 + i * 7, 0.45f)
                 } else {
-                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.8f, g))
+                    val k = glowStrength(it, x.frame)
+                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.8f, g).apply { color = withAlpha(g, 0.85f * k) })
                 }
                 return@forEachIndexed
             }
@@ -366,7 +393,7 @@ object Renderer {
                 val g = x.text(numSize, bold = true, color = gc).apply {
                     clearShadowLayer(); maskFilter = BlurMaskFilter(8 * d, BlurMaskFilter.Blur.NORMAL)
                 }
-                if (low.charging && x.frame % 2 == 1) g.alpha = 150 // flicker
+                g.alpha = (255 * if (low.charging) 0.35f + 0.65f * plasma(x.frame, 0) else glowStrength(low, x.frame)).toInt()
                 x.c.drawText(t, a.left, numY, g)
             }
         } else {
@@ -393,7 +420,8 @@ object Renderer {
             if (x.glow) {
                 val g = glowColor(it)
                 if (g != null && glowOn(it, x.frame)) {
-                    x.c.drawRoundRect(chip, chipH / 2f, chipH / 2f, x.halo(2.5f * d, g))
+                    val k = if (it.charging) 0.3f + 0.7f * plasma(x.frame, 0) else glowStrength(it, x.frame)
+                    x.c.drawRoundRect(chip, chipH / 2f, chipH / 2f, x.halo(2.5f * d, g).apply { color = withAlpha(g, 0.85f * k) })
                 }
             } else {
                 x.spotlight(RectF(chip.left - 3 * d, chip.top - 3 * d, chip.right + 3 * d, chip.bottom + 3 * d), it.name)
