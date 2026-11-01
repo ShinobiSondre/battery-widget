@@ -194,15 +194,22 @@ object WidgetUpdater {
             // Keep the pictures small enough for the launcher to accept.
             val scale = min(density, 800f / max(wDp, hDp))
             val bmp = Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale, highlight = highlight)
+            // The glow frames are drawn smaller (they're soft anyway) to keep the widget light.
             val glow = if (charging) {
-                Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale, Renderer.Layer.GLOW)
+                (0 until Renderer.GLOW_FRAMES).map { f ->
+                    Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale * 0.6f, Renderer.Layer.GLOW, frame = f)
+                }
             } else null
 
             val views = RemoteViews(ctx.packageName, R.layout.widget_battery)
             views.setViewVisibility(R.id.widget_connect, if (offerConnect) View.VISIBLE else View.GONE)
             if (offerConnect) views.setOnClickPendingIntent(R.id.widget_connect, connectIntent(ctx))
             if (glow != null) {
-                views.setImageViewBitmap(R.id.widget_glow_on, glow)
+                val frameIds = intArrayOf(
+                    R.id.widget_glow0, R.id.widget_glow1, R.id.widget_glow2,
+                    R.id.widget_glow3, R.id.widget_glow4, R.id.widget_glow5
+                )
+                glow.forEachIndexed { f, b -> views.setImageViewBitmap(frameIds[f], b) }
                 views.setViewVisibility(R.id.widget_glow, View.VISIBLE)
             } else {
                 views.setViewVisibility(R.id.widget_glow, View.GONE)

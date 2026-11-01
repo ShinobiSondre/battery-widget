@@ -186,23 +186,26 @@ fun MainScreen() {
             val preview = remember(items, style, opacity, wDp, joined) {
                 Renderer.render(items, style, opacity, wDp, hDp, density, highlight = joined).asImageBitmap()
             }
-            val glow = remember(items, style, opacity, wDp) {
-                if (Renderer.anyGlow(items))
-                    Renderer.render(items, style, opacity, wDp, hDp, density, Renderer.Layer.GLOW).asImageBitmap()
-                else null
+            val glowFrames = remember(items, style, opacity, wDp) {
+                if (Renderer.anyGlow(items)) (0 until Renderer.GLOW_FRAMES).map { f ->
+                    Renderer.render(items, style, opacity, wDp, hDp, density, Renderer.Layer.GLOW, frame = f).asImageBitmap()
+                } else emptyList()
             }
-            val breathe = rememberInfiniteTransition(label = "charging")
-            val glowAlpha by breathe.animateFloat(
-                initialValue = 0f, targetValue = 1f,
-                animationSpec = infiniteRepeatable(tween(1300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
-                label = "glow"
-            )
+            var glowFrame by remember { mutableIntStateOf(0) }
+            LaunchedEffect(glowFrames) {
+                while (glowFrames.isNotEmpty()) {
+                    delay(Renderer.FRAME_MS.toLong())
+                    glowFrame = (glowFrame + 1) % glowFrames.size
+                }
+            }
             Box(Modifier.width(wDp.dp).height(hDp.dp)) {
                 Crossfade(targetState = preview, animationSpec = tween(420), label = "preview") { img ->
                     Image(img, contentDescription = "Widget preview", modifier = Modifier.fillMaxSize())
                 }
-                if (glow != null) {
-                    Image(glow, contentDescription = null, modifier = Modifier.fillMaxSize().graphicsLayer { alpha = glowAlpha })
+                if (glowFrames.isNotEmpty()) {
+                    Crossfade(targetState = glowFrame, animationSpec = tween(90), label = "glow") { f ->
+                        Image(glowFrames[f % glowFrames.size], contentDescription = null, modifier = Modifier.fillMaxSize())
+                    }
                 }
             }
         }

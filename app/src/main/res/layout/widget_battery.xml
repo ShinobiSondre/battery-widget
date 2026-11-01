@@ -29,28 +29,58 @@
             android:scaleType="fitCenter" />
     </ViewFlipper>
 
+    <!-- Glow frames (electricity while charging, heartbeat when low), flipped by the launcher -->
     <ViewFlipper
         android:id="@+id/widget_glow"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:autoStart="true"
-        android:flipInterval="1300"
+        android:flipInterval="160"
         android:inAnimation="@anim/glow_in"
         android:outAnimation="@anim/glow_out"
         android:visibility="gone">
 
         <ImageView
-            android:id="@+id/widget_glow_on"
+            android:id="@+id/widget_glow0"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:importantForAccessibility="no"
             android:scaleType="fitCenter" />
 
         <ImageView
-            android:id="@+id/widget_glow_off"
+            android:id="@+id/widget_glow1"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:importantForAccessibility="no" />
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow2"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow3"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow4"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow5"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
     </ViewFlipper>
 
 

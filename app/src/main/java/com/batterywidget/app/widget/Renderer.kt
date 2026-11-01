@@ -51,7 +51,7 @@ object Renderer {
      */
     fun render(
         items: List<Item>, style: WidgetStyle, opacity: Int, wDp: Float, hDp: Float, scale: Float,
-        layer: Layer = Layer.NORMAL, highlight: Set<String> = emptySet()
+        layer: Layer = Layer.NORMAL, highlight: Set<String> = emptySet(), frame: Int = 0
     ): Bitmap {
         val w = (wDp * scale).toInt().coerceAtLeast(1)
         val h = (hDp * scale).toInt().coerceAtLeast(1)
@@ -69,7 +69,7 @@ object Renderer {
             c.drawRoundRect(RectF(d / 2, d / 2, w - d / 2, h - d / 2), radius, radius, border)
         }
 
-        val x = Ctx(c, d, opacity < 40, layer == Layer.GLOW, highlight)
+        val x = Ctx(c, d, opacity < 40, layer == Layer.GLOW, highlight, frame)
         val pad = 14 * d
         val area = RectF(pad, pad, w - pad, h - pad)
         when (style) {
@@ -93,7 +93,29 @@ object Renderer {
 
     fun anyGlow(items: List<Item>) = items.any { glowColor(it) != null }
 
-    private class Ctx(val c: Canvas, val d: Float, val shadow: Boolean, val glow: Boolean, val highlight: Set<String>) {
+    /** The glow is drawn as this many frames; the widget flips through them [FRAME_MS] apart. */
+    const val GLOW_FRAMES = 6
+    const val FRAME_MS = 160
+
+    private const val SPARK_CORE = 0xFFFFF4D6.toInt()
+
+    /**
+     * Whether an item glows in a given frame:
+     * charging = always (each frame a different electric bolt),
+     * low = a heartbeat (two quick beats, then a pause),
+     * nearing low = a calm blink.
+     */
+    private fun glowOn(i: Item, frame: Int): Boolean = when {
+        i.charging -> true
+        i.level in 0..20 -> frame == 0 || frame == 2
+        i.level in 21..35 -> frame < 3
+        else -> false
+    }
+
+    private class Ctx(
+        val c: Canvas, val d: Float, val shadow: Boolean, val glow: Boolean, val highlight: Set<String>,
+        val frame: Int = 0,
+    ) {
         fun text(sizePx: Float, bold: Boolean = false, color: Int = WHITE) = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             textSize = sizePx
             this.color = color
@@ -119,6 +141,66 @@ object Renderer {
                 maskFilter = BlurMaskFilter(8 * d, BlurMaskFilter.Blur.NORMAL)
             }
             c.drawRoundRect(r, 14 * d, 14 * d, p)
+        }
+    }
+
+    /** A jagged electric bolt along the filled arc, with a soft glow and a couple of sparks. */
+    private fun electricArc(x: Ctx, cx: Float, cy: Float, r: Float, sweep: Float, stroke: Float, tint: Int, seed: Int) {
+        val rnd = java.util.Random(seed.toLong())
+        val pts = mutableListOf<Pair<Float, Float>>()
+        val steps = maxOf(4, (sweep / 8f).toInt())
+        for (s in 0..steps) {
+            val a = Math.toRadians((-90.0 + sweep * s / steps))
+            val off = if (s == 0 || s == steps) 0f else (rnd.nextFloat() * 2 - 1) * stroke * 0.95f
+            val rr = r + off
+            pts += (cx + rr * kotlin.math.cos(a)).toFloat() to (cy + rr * kotlin.math.sin(a)).toFloat()
+        }
+        drawBolt(x, pts, stroke, tint, rnd)
+    }
+
+    /** The same along a straight bar. */
+    private fun electricLine(x: Ctx, x0: Float, x1: Float, y: Float, thick: Float, tint: Int, seed: Int) {
+        val rnd = java.util.Random(seed.toLong())
+        val pts = mutableListOf<Pair<Float, Float>>()
+        val steps = maxOf(3, ((x1 - x0) / (5 * x.d)).toInt())
+        for (s in 0..steps) {
+            val off = if (s == 0 || s == steps) 0f else (rnd.nextFloat() * 2 - 1) * thick * 0.95f
+            pts += (x0 + (x1 - x0) * s / steps) to (y + off)
+        }
+        drawBolt(x, pts, thick, tint, rnd)
+    }
+
+    private fun drawBolt(x: Ctx, pts: List<Pair<Float, Float>>, width: Float, tint: Int, rnd: java.util.Random) {
+        if (pts.size < 2) return
+        val path = android.graphics.Path()
+        path.moveTo(pts[0].first, pts[0].second)
+        for (p in pts.drop(1)) path.lineTo(p.first, p.second)
+        val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = width * 1.5f
+            strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+            color = Color.argb(190, Color.red(tint), Color.green(tint), Color.blue(tint))
+            maskFilter = BlurMaskFilter(4 * x.d, BlurMaskFilter.Blur.NORMAL)
+        }
+        val core = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = maxOf(1.2f * x.d, width * 0.28f)
+            strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
+            color = SPARK_CORE
+        }
+        x.c.drawPath(path, glow)
+        x.c.drawPath(path, core)
+        // A couple of sparks jumping off the bolt.
+        if (pts.size < 3) return
+        repeat(2) {
+            val (sx, sy) = pts[1 + rnd.nextInt(pts.size - 2)]
+            val ang = rnd.nextFloat() * 2 * Math.PI.toFloat()
+            val len = width * (1.2f + rnd.nextFloat())
+            val mx = sx + kotlin.math.cos(ang) * len * 0.5f + (rnd.nextFloat() - 0.5f) * width * 0.6f
+            val my = sy + kotlin.math.sin(ang) * len * 0.5f + (rnd.nextFloat() - 0.5f) * width * 0.6f
+            val ex = sx + kotlin.math.cos(ang) * len
+            val ey = sy + kotlin.math.sin(ang) * len
+            val spark = android.graphics.Path().apply { moveTo(sx, sy); lineTo(mx, my); lineTo(ex, ey) }
+            x.c.drawPath(spark, glow.apply { strokeWidth = width * 0.7f })
+            x.c.drawPath(spark, core.apply { strokeWidth = maxOf(0.9f * x.d, width * 0.18f) })
         }
     }
 
@@ -157,9 +239,16 @@ object Renderer {
             val r = diam / 2f - stroke / 2f
             val oval = RectF(cx - r, cy - r, cx + r, cy + r)
             if (x.glow) {
+                // Only the filled part of the ring animates.
                 val g = glowColor(it) ?: return@forEachIndexed
-                x.c.drawOval(oval, x.halo(stroke * 1.8f, g))
-                Icons.draw(x.c, it.icon, cx, cy, diam * 0.46f, g)
+                if (it.level <= 0 || !glowOn(it, x.frame)) return@forEachIndexed
+                val sweep = 360f * it.level / 100f
+                if (it.charging) {
+                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.4f, g).apply { alpha = 110 })
+                    electricArc(x, cx, cy, r, sweep, stroke, g, x.frame * 31 + i * 7)
+                } else {
+                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 2f, g))
+                }
                 return@forEachIndexed
             }
             x.spotlight(RectF(cx - cw / 2f + 2 * x.d, top - 4 * x.d, cx + cw / 2f - 2 * x.d, top + blockH + 2 * x.d), it.name)
@@ -211,13 +300,16 @@ object Renderer {
             val r = barH / 2f
 
             if (x.glow) {
+                // Only the filled part of the bar animates.
                 val g = glowColor(it) ?: return@forEachIndexed
-                if (hasBar && it.level > 0) {
-                    val end = (barLeft + (barRight - barLeft) * it.level / 100f).coerceAtLeast(barLeft + barH)
-                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.6f, g))
+                if (!hasBar || it.level <= 0 || !glowOn(it, x.frame)) return@forEachIndexed
+                val end = (barLeft + (barRight - barLeft) * it.level / 100f).coerceAtLeast(barLeft + barH)
+                if (it.charging) {
+                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.3f, g).apply { alpha = 110 })
+                    electricLine(x, barLeft + r, end - r, cy, barH, g, x.frame * 31 + i * 7)
+                } else {
+                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.8f, g))
                 }
-                Icons.draw(x.c, it.icon, iconX, cy, icon, g)
-                if (it.charging) Icons.bolt(x.c, right - boltW / 2f, cy, boltW * 1.15f, g)
                 return@forEachIndexed
             }
 
@@ -270,12 +362,12 @@ object Renderer {
 
         if (x.glow) {
             val gc = glowColor(low)
-            if (gc != null) {
+            if (gc != null && glowOn(low, x.frame)) {
                 val g = x.text(numSize, bold = true, color = gc).apply {
                     clearShadowLayer(); maskFilter = BlurMaskFilter(8 * d, BlurMaskFilter.Blur.NORMAL)
                 }
+                if (low.charging && x.frame % 2 == 1) g.alpha = 150 // flicker
                 x.c.drawText(t, a.left, numY, g)
-                if (low.charging) Icons.bolt(x.c, a.left + num.measureText(t) + numSize * 0.25f, numY - numSize * 0.35f, numSize * 0.48f, gc)
             }
         } else {
             x.spotlight(RectF(a.left - 6 * d, blockTop - 4 * d, a.right, blockTop + blockH + 4 * d), low.name)
@@ -300,9 +392,8 @@ object Renderer {
             val chip = RectF(cx, cy, cx + cw, cy + chipH)
             if (x.glow) {
                 val g = glowColor(it)
-                if (g != null) {
+                if (g != null && glowOn(it, x.frame)) {
                     x.c.drawRoundRect(chip, chipH / 2f, chipH / 2f, x.halo(2.5f * d, g))
-                    Icons.draw(x.c, it.icon, cx + 10 * d + iw / 2f, cy + chipH / 2f, iw, g)
                 }
             } else {
                 x.spotlight(RectF(chip.left - 3 * d, chip.top - 3 * d, chip.right + 3 * d, chip.bottom + 3 * d), it.name)
