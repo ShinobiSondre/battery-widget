@@ -80,74 +80,147 @@ object Renderer {
         return bmp
     }
 
-    /**
-     * The colour an item pulses in, or null when it shouldn't pulse:
-     * orange while charging, red when low (20% or less), orange when nearing low (35% or less).
-     */
-    fun glowColor(i: Item, a: Anims = anims): Int? = when {
-        i.charging -> if (a.charge) ORANGE else null
-        i.level in 0..20 -> if (a.low) RED else null
-        i.level in 21..35 -> if (a.near) ORANGE else null
-        i.level > 35 -> if (a.normal) levelColor(i) else null
-        else -> null
-    }
+    /** The three animations. */
+    enum class Fx { SHINE, RIPPLE, BREATHE }
 
-    /** Which animations are switched on (each one can be turned on or off in the app). */
+    /**
+     * Which animations are on. The first three play automatically when they matter;
+     * the last three play all the time on every device, in the device's own colour.
+     */
     data class Anims(
-        val charge: Boolean = true,  // gold shine while charging
-        val low: Boolean = true,     // red ripple at 20% or less
-        val near: Boolean = true,    // orange breathing at 21-35%
-        val normal: Boolean = false, // shine in the device's own colour when it's simply fine
-    ) {
-        val any get() = charge || low || near || normal
-    }
+        val charge: Boolean = true,   // gold shine while charging
+        val low: Boolean = true,      // red ripple at 20% or less
+        val near: Boolean = true,     // orange breathing at 21-35%
+        val shine: Boolean = false,   // always: shine
+        val ripple: Boolean = false,  // always: ripple
+        val breathe: Boolean = false, // always: breathing
+    )
 
     @Volatile var anims = Anims()
 
-    /** Shine sweeps over items that are charging, or (with always-animate) simply doing fine. */
-    private fun shines(i: Item) = i.charging || i.level > 35
-
-    /** The bright highlight colour for a shine: gold while charging, otherwise a light tint of the item's colour. */
-    private fun shineTint(i: Item, g: Int): Int {
-        if (i.charging) return SHINE
-        fun lift(v: Int) = (v + (255 - v) * 0.6f).toInt()
-        return Color.rgb(lift(Color.red(g)), lift(Color.green(g)), lift(Color.blue(g)))
+    /** The animations an item plays right now, each with the colour it plays in. */
+    fun effects(i: Item, a: Anims = anims): Map<Fx, Int> {
+        if (i.level < 0 && !i.charging) return emptyMap()
+        val out = LinkedHashMap<Fx, Int>()
+        when {
+            i.charging -> if (a.charge) out[Fx.SHINE] = ORANGE
+            i.level <= 20 -> if (a.low) out[Fx.RIPPLE] = RED
+            i.level <= 35 -> if (a.near) out[Fx.BREATHE] = ORANGE
+        }
+        val own = levelColor(i)
+        if (a.shine) out.putIfAbsent(Fx.SHINE, own)
+        if (a.ripple) out.putIfAbsent(Fx.RIPPLE, own)
+        if (a.breathe) out.putIfAbsent(Fx.BREATHE, own)
+        return out
     }
 
-    fun anyGlow(items: List<Item>) = items.any { glowColor(it) != null }
+    /** The colour an item pulses in, or null when it doesn't animate. */
+    fun glowColor(i: Item, a: Anims = anims): Int? = effects(i, a).values.firstOrNull()
+
+    fun anyGlow(items: List<Item>) = items.any { effects(it).isNotEmpty() }
+
+    /** The bright highlight colour for a shine: gold while charging, otherwise a light tint of the colour. */
+    private fun shineTint(i: Item, g: Int): Int {
+        if (i.charging) return SHINE
+        fun lift(v: Int) = (v + (255 - v) * 0.65f).toInt()
+        return Color.rgb(lift(Color.red(g)), lift(Color.green(g)), lift(Color.blue(g)))
+    }
 
     /** The glow is drawn as this many frames; the widget flips through them [FRAME_MS] apart. */
     const val GLOW_FRAMES = 20
     const val FRAME_MS = 60
-
-    private const val SPARK_CORE = 0xFFFFF4D6.toInt()
 
     private const val SHINE = 0xFFFDE68A.toInt()
 
     /** Where we are in the loop, 0..1. */
     private fun phase(frame: Int) = frame / GLOW_FRAMES.toFloat()
 
-    /** Low battery sends out two sonar ripples per loop; this is how far along the newest one is (0..1). */
+    /** Two ripples per loop; how far along ripple k is (0..1). */
     private fun ripple(frame: Int, k: Int = 0) = (phase(frame) * 2 + k * 0.5f) % 1f
 
-    /**
-     * How strongly an item glows in a given frame (0 = not at all):
-     * charging = always (a neon shine sweeps along the filled part),
-     * low = sonar ripples going out from the ring,
-     * nearing low = a calm breathing glow.
-     */
-    private fun glowStrength(i: Item, frame: Int): Float = when {
-        i.charging -> 1f
-        i.level > 35 -> 1f
-        i.level in 0..20 -> 0.3f + 0.7f * (1 - ripple(frame)).let { it * it }
-        i.level in 21..35 -> 0.5f - 0.5f * kotlin.math.cos(2 * Math.PI * frame / GLOW_FRAMES).toFloat()
-        else -> 0f
+    /** Breathing brightness, 0..1. */
+    private fun breathe(frame: Int) = 0.5f - 0.5f * kotlin.math.cos(2 * Math.PI * phase(frame)).toFloat()
+
+    /** How bright a simple glow (big number, chips) is for an effect in a frame, 0..1. */
+    private fun pulse(fx: Fx, frame: Int): Float = when (fx) {
+        Fx.SHINE -> 0.5f + 0.5f * kotlin.math.sin(2 * Math.PI * phase(frame)).toFloat()
+        Fx.RIPPLE -> 0.25f + 0.75f * (1 - ripple(frame)).let { it * it }
+        Fx.BREATHE -> 0.1f + 0.9f * breathe(frame)
     }
 
-    private fun glowOn(i: Item, frame: Int) = glowStrength(i, frame) > 0.02f
+    /** All the animations of one ring, drawn on the glow layer. */
+    private fun ringGlow(x: Ctx, it: Item, cx: Float, cy: Float, r: Float, stroke: Float) {
+        val sweep = 360f * it.level.coerceIn(0, 100) / 100f
+        val oval = RectF(cx - r, cy - r, cx + r, cy + r)
+        val soft = { w: Float, blur: Float, col: Int -> Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = w; strokeCap = Paint.Cap.ROUND; color = col
+            if (blur > 0) maskFilter = BlurMaskFilter(blur, BlurMaskFilter.Blur.NORMAL)
+        } }
+        for ((fx, g) in effects(it)) when (fx) {
+            Fx.SHINE -> {
+                if (sweep <= 0f) continue
+                // A bright highlight runs from the start of the filled part to its end, then again.
+                val end = -90f + sweep
+                val half = (sweep * 0.14f).coerceIn(14f, 34f)
+                val head = -90f - half + (sweep + 2 * half) * phase(x.frame)
+                fun seg(h: Float, p: Paint) {
+                    val from = maxOf(-90f, head - h); val to = minOf(end, head + h)
+                    if (to > from) x.c.drawArc(oval, from, to - from, false, p)
+                }
+                val tint = shineTint(it, g)
+                seg(half, soft(stroke * 1.6f, 4 * x.d, withAlpha(g, 0.55f)))
+                seg(half * 0.75f, soft(stroke, 1.5f * x.d, withAlpha(tint, 1f)))
+                seg(half * 0.3f, soft(stroke * 0.45f, x.d, withAlpha(WHITE, 0.95f)))
+            }
+            Fx.RIPPLE -> for (k in 0..1) {
+                // Rings that grow out of the ring and fade.
+                val q = ripple(x.frame, k)
+                val p = soft(maxOf(1.2f * x.d, stroke * 0.35f * (1 - q)), 1.5f * x.d, withAlpha(g, 0.9f * (1 - q)))
+                x.c.drawCircle(cx, cy, r + stroke * 0.5f + q * stroke * 2.4f, p)
+            }
+            Fx.BREATHE -> if (sweep > 0f) {
+                val b = breathe(x.frame)
+                x.c.drawArc(oval, -90f, sweep, false, soft(stroke * (1.2f + 0.8f * b), (3 + 5 * b) * x.d, withAlpha(g, 0.15f + 0.75f * b)))
+            }
+        }
+    }
 
-    /** Charging pulse used for the big number and chips. */
-    private fun shinePulse(frame: Int) = 0.5f + 0.5f * kotlin.math.sin(2 * Math.PI * phase(frame)).toFloat()
+    /** All the animations of one bar, drawn on the glow layer. */
+    private fun barGlow(x: Ctx, it: Item, barLeft: Float, barRight: Float, cy: Float, barH: Float) {
+        val d = x.d
+        val r = barH / 2f
+        val end = (barLeft + (barRight - barLeft) * it.level.coerceIn(0, 100) / 100f).coerceAtLeast(barLeft + barH)
+        val x0 = barLeft + r; val x1 = end - r
+        val soft = { w: Float, blur: Float, col: Int -> Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE; strokeWidth = w; strokeCap = Paint.Cap.ROUND; color = col
+            if (blur > 0) maskFilter = BlurMaskFilter(blur, BlurMaskFilter.Blur.NORMAL)
+        } }
+        for ((fx, g) in effects(it)) when (fx) {
+            Fx.SHINE -> {
+                val len = x1 - x0
+                val hw = maxOf(len * 0.14f, 8 * d)
+                val head = x0 - hw + (len + 2 * hw) * phase(x.frame)
+                fun seg(h: Float, p: Paint) {
+                    val a0 = maxOf(x0, head - h); val a1 = minOf(x1, head + h)
+                    if (a1 > a0) x.c.drawLine(a0, cy, a1, cy, p)
+                }
+                seg(hw, soft(barH * 1.6f, 3 * d, withAlpha(g, 0.55f)))
+                seg(hw * 0.75f, soft(barH, d, withAlpha(shineTint(it, g), 1f)))
+                seg(hw * 0.3f, soft(barH * 0.45f, 0.8f * d, withAlpha(WHITE, 0.95f)))
+            }
+            Fx.RIPPLE -> for (k in 0..1) {
+                val q = ripple(x.frame, k)
+                val grow = barH * 0.3f + q * barH * 1.8f
+                val box = RectF(barLeft - grow, cy - r - grow, end + grow, cy + r + grow)
+                val p = soft(maxOf(d, barH * 0.4f * (1 - q)), d, withAlpha(g, 0.9f * (1 - q)))
+                x.c.drawRoundRect(box, r + grow, r + grow, p)
+            }
+            Fx.BREATHE -> {
+                val b = breathe(x.frame)
+                x.c.drawLine(x0, cy, x1, cy, soft(barH * (1.2f + 0.8f * b), (2 + 4 * b) * d, withAlpha(g, 0.15f + 0.75f * b)))
+            }
+        }
+    }
 
     private fun withAlpha(tint: Int, a: Float) =
         Color.argb((255 * a.coerceIn(0f, 1f)).toInt(), Color.red(tint), Color.green(tint), Color.blue(tint))
@@ -181,67 +254,6 @@ object Renderer {
                 maskFilter = BlurMaskFilter(8 * d, BlurMaskFilter.Blur.NORMAL)
             }
             c.drawRoundRect(r, 14 * d, 14 * d, p)
-        }
-    }
-
-    /** A jagged electric bolt along the filled arc, with a soft glow and a couple of sparks. */
-    private fun electricArc(x: Ctx, cx: Float, cy: Float, r: Float, sweep: Float, stroke: Float, tint: Int, seed: Int, strength: Float = 1f) {
-        val rnd = java.util.Random(seed.toLong())
-        val pts = mutableListOf<Pair<Float, Float>>()
-        val steps = maxOf(4, (sweep / 8f).toInt())
-        for (s in 0..steps) {
-            val a = Math.toRadians((-90.0 + sweep * s / steps))
-            val off = if (s == 0 || s == steps) 0f else (rnd.nextFloat() * 2 - 1) * stroke * 0.95f
-            val rr = r + off
-            pts += (cx + rr * kotlin.math.cos(a)).toFloat() to (cy + rr * kotlin.math.sin(a)).toFloat()
-        }
-        drawBolt(x, pts, stroke, tint, rnd, strength)
-    }
-
-    /** The same along a straight bar. */
-    private fun electricLine(x: Ctx, x0: Float, x1: Float, y: Float, thick: Float, tint: Int, seed: Int, strength: Float = 1f) {
-        val rnd = java.util.Random(seed.toLong())
-        val pts = mutableListOf<Pair<Float, Float>>()
-        val steps = maxOf(3, ((x1 - x0) / (5 * x.d)).toInt())
-        for (s in 0..steps) {
-            val off = if (s == 0 || s == steps) 0f else (rnd.nextFloat() * 2 - 1) * thick * 0.95f
-            pts += (x0 + (x1 - x0) * s / steps) to (y + off)
-        }
-        drawBolt(x, pts, thick, tint, rnd, strength)
-    }
-
-    private fun drawBolt(x: Ctx, pts: List<Pair<Float, Float>>, width: Float, tint: Int, rnd: java.util.Random, strength: Float = 1f) {
-        if (pts.size < 2) return
-        val path = android.graphics.Path()
-        path.moveTo(pts[0].first, pts[0].second)
-        for (p in pts.drop(1)) path.lineTo(p.first, p.second)
-        val glow = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeWidth = width * 1.5f
-            strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-            color = withAlpha(tint, 0.75f * strength)
-            maskFilter = BlurMaskFilter(4 * x.d, BlurMaskFilter.Blur.NORMAL)
-        }
-        val core = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeWidth = maxOf(1.2f * x.d, width * 0.28f)
-            strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
-            color = SPARK_CORE
-            alpha = (255 * strength).toInt()
-        }
-        x.c.drawPath(path, glow)
-        x.c.drawPath(path, core)
-        // A couple of sparks jumping off the bolt.
-        if (pts.size < 3) return
-        repeat(2) {
-            val (sx, sy) = pts[1 + rnd.nextInt(pts.size - 2)]
-            val ang = rnd.nextFloat() * 2 * Math.PI.toFloat()
-            val len = width * (1.2f + rnd.nextFloat())
-            val mx = sx + kotlin.math.cos(ang) * len * 0.5f + (rnd.nextFloat() - 0.5f) * width * 0.6f
-            val my = sy + kotlin.math.sin(ang) * len * 0.5f + (rnd.nextFloat() - 0.5f) * width * 0.6f
-            val ex = sx + kotlin.math.cos(ang) * len
-            val ey = sy + kotlin.math.sin(ang) * len
-            val spark = android.graphics.Path().apply { moveTo(sx, sy); lineTo(mx, my); lineTo(ex, ey) }
-            x.c.drawPath(spark, glow.apply { strokeWidth = width * 0.7f })
-            x.c.drawPath(spark, core.apply { strokeWidth = maxOf(0.9f * x.d, width * 0.18f) })
         }
     }
 
@@ -280,37 +292,7 @@ object Renderer {
             val r = diam / 2f - stroke / 2f
             val oval = RectF(cx - r, cy - r, cx + r, cy + r)
             if (x.glow) {
-                // Only the filled part of the ring animates.
-                val g = glowColor(it) ?: return@forEachIndexed
-                if (it.level <= 0 || !glowOn(it, x.frame)) return@forEachIndexed
-                val sweep = 360f * it.level / 100f
-                if (shines(it)) {
-                    // Neon shine: a steady glow with a bright white-gold shine sweeping along it.
-                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.05f, g).apply { color = withAlpha(g, 0.22f); maskFilter = BlurMaskFilter(3 * x.d, BlurMaskFilter.Blur.NORMAL) })
-                    val end = -90f + sweep
-                    val head = -90f - 35f + (sweep + 70f) * phase(x.frame)
-                    fun seg(half: Float, paint: Paint) {
-                        val from = maxOf(-90f, head - half); val to = minOf(end, head + half)
-                        if (to > from) x.c.drawArc(oval, from, to - from, false, paint)
-                    }
-                    seg(26f, x.halo(stroke * 0.9f, g).apply { color = withAlpha(shineTint(it, g), 0.95f); maskFilter = BlurMaskFilter(2.5f * x.d, BlurMaskFilter.Blur.NORMAL) })
-                    seg(7f, x.halo(stroke * 0.35f, WHITE).apply {
-                        color = withAlpha(WHITE, 0.9f); maskFilter = BlurMaskFilter(2 * x.d, BlurMaskFilter.Blur.NORMAL)
-                    })
-                } else if (it.level <= 20) {
-                    // Sonar: the filled part glows and two red rings ripple outward.
-                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.3f, g).apply { color = withAlpha(g, 0.4f) })
-                    for (k in 0..1) {
-                        val q = ripple(x.frame, k)
-                        val ring = x.halo(stroke * (0.25f * (1 - q) + 0.04f), g).apply {
-                            color = withAlpha(g, 0.8f * (1 - q)); maskFilter = BlurMaskFilter(3 * x.d, BlurMaskFilter.Blur.NORMAL)
-                        }
-                        x.c.drawCircle(cx, cy, r + stroke * 0.6f + q * stroke * 2.5f, ring)
-                    }
-                } else {
-                    val k = glowStrength(it, x.frame)
-                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.8f, g).apply { color = withAlpha(g, 0.85f * k) })
-                }
+                ringGlow(x, it, cx, cy, r, stroke)
                 return@forEachIndexed
             }
             x.spotlight(RectF(cx - cw / 2f + 2 * x.d, top - 4 * x.d, cx + cw / 2f - 2 * x.d, top + blockH + 2 * x.d), it.name)
@@ -362,39 +344,7 @@ object Renderer {
             val r = barH / 2f
 
             if (x.glow) {
-                // Only the filled part of the bar animates.
-                val g = glowColor(it) ?: return@forEachIndexed
-                if (!hasBar || it.level <= 0 || !glowOn(it, x.frame)) return@forEachIndexed
-                val end = (barLeft + (barRight - barLeft) * it.level / 100f).coerceAtLeast(barLeft + barH)
-                if (shines(it)) {
-                    val x0 = barLeft + r; val x1 = end - r
-                    x.c.drawLine(x0, cy, x1, cy, x.halo(barH * 1.05f, g).apply { color = withAlpha(g, 0.22f); maskFilter = BlurMaskFilter(2 * d, BlurMaskFilter.Blur.NORMAL) })
-                    val len = x1 - x0
-                    val hw = maxOf(len * 0.12f, 8 * d)
-                    val head = x0 - hw + (len + 2 * hw) * phase(x.frame)
-                    fun seg(half: Float, paint: Paint) {
-                        val a0 = maxOf(x0, head - half); val a1 = minOf(x1, head + half)
-                        if (a1 > a0) x.c.drawLine(a0, cy, a1, cy, paint)
-                    }
-                    seg(hw, x.halo(barH * 0.9f, g).apply { color = withAlpha(shineTint(it, g), 0.95f); maskFilter = BlurMaskFilter(2 * d, BlurMaskFilter.Blur.NORMAL) })
-                    seg(hw * 0.3f, x.halo(barH * 0.35f, WHITE).apply {
-                        color = withAlpha(WHITE, 0.9f); maskFilter = BlurMaskFilter(2 * d, BlurMaskFilter.Blur.NORMAL)
-                    })
-                } else if (it.level <= 20) {
-                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.3f, g).apply { color = withAlpha(g, 0.4f) })
-                    for (k in 0..1) {
-                        val q = ripple(x.frame, k)
-                        val grow = barH * 0.4f + q * barH * 2f
-                        val box = RectF(barLeft - grow, cy - r - grow, end + grow, cy + r + grow)
-                        val ring = x.halo(barH * (0.3f * (1 - q) + 0.06f), g).apply {
-                            color = withAlpha(g, 0.8f * (1 - q)); maskFilter = BlurMaskFilter(2 * d, BlurMaskFilter.Blur.NORMAL)
-                        }
-                        x.c.drawRoundRect(box, r + grow, r + grow, ring)
-                    }
-                } else {
-                    val k = glowStrength(it, x.frame)
-                    x.c.drawLine(barLeft + r, cy, end - r, cy, x.halo(barH * 1.8f, g).apply { color = withAlpha(g, 0.85f * k) })
-                }
+                if (hasBar) barGlow(x, it, barLeft, barRight, cy, barH)
                 return@forEachIndexed
             }
 
@@ -446,12 +396,11 @@ object Renderer {
         val icon = nameSize * 1.3f
 
         if (x.glow) {
-            val gc = glowColor(low)
-            if (gc != null && glowOn(low, x.frame)) {
+            effects(low).entries.firstOrNull()?.let { (fx, gc) ->
                 val g = x.text(numSize, bold = true, color = gc).apply {
                     clearShadowLayer(); maskFilter = BlurMaskFilter(8 * d, BlurMaskFilter.Blur.NORMAL)
                 }
-                g.alpha = (255 * if (shines(low)) 0.35f + 0.65f * shinePulse(x.frame) else glowStrength(low, x.frame)).toInt()
+                g.alpha = (255 * pulse(fx, x.frame)).toInt()
                 x.c.drawText(t, a.left, numY, g)
             }
         } else {
@@ -476,10 +425,8 @@ object Renderer {
             if (cx + cw > a.right) break
             val chip = RectF(cx, cy, cx + cw, cy + chipH)
             if (x.glow) {
-                val g = glowColor(it)
-                if (g != null && glowOn(it, x.frame)) {
-                    val k = if (shines(it)) 0.3f + 0.7f * shinePulse(x.frame) else glowStrength(it, x.frame)
-                    x.c.drawRoundRect(chip, chipH / 2f, chipH / 2f, x.halo(2.5f * d, g).apply { color = withAlpha(g, 0.85f * k) })
+                effects(it).entries.firstOrNull()?.let { (fx, g) ->
+                    x.c.drawRoundRect(chip, chipH / 2f, chipH / 2f, x.halo(2.5f * d, g).apply { color = withAlpha(g, 0.9f * pulse(fx, x.frame)) })
                 }
             } else {
                 x.spotlight(RectF(chip.left - 3 * d, chip.top - 3 * d, chip.right + 3 * d, chip.bottom + 3 * d), it.name)

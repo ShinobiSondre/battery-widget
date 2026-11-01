@@ -264,10 +264,14 @@ fun MainScreen() {
                 fun set(a: Renderer.Anims) {
                     anims = a; Prefs.setAnims(ctx, a); Renderer.anims = a; WidgetUpdater.updateAll(ctx)
                 }
-                AnimSwitch("Charging", "Gold shine sweeps around while a device charges", anims.charge) { set(anims.copy(charge = it)) }
-                AnimSwitch("Low battery", "Red ripples at 20% or less", anims.low) { set(anims.copy(low = it)) }
-                AnimSwitch("Getting low", "Slow orange breathing at 21–35%", anims.near) { set(anims.copy(near = it)) }
-                AnimSwitch("Everything else", "Shine in the device's own colour, even when it's not charging or low. Uses a little more battery.", anims.normal) { set(anims.copy(normal = it)) }
+                Text("When it matters", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 6.dp))
+                AnimSwitch("Charging: shine", "A gold shine runs along the battery while it charges", anims.charge) { set(anims.copy(charge = it)) }
+                AnimSwitch("Low battery: ripple", "Red ripples at 20% or less", anims.low) { set(anims.copy(low = it)) }
+                AnimSwitch("Getting low: breathing", "Slow orange breathing at 21–35%", anims.near) { set(anims.copy(near = it)) }
+                Text("Play all the time", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(start = 12.dp, top = 6.dp))
+                AnimSwitch("Shine", "On every device, in its own colour. Uses a little more battery.", anims.shine) { set(anims.copy(shine = it)) }
+                AnimSwitch("Ripple", "On every device, in its own colour", anims.ripple) { set(anims.copy(ripple = it)) }
+                AnimSwitch("Breathing", "On every device, in its own colour", anims.breathe) { set(anims.copy(breathe = it)) }
             }
         }
 

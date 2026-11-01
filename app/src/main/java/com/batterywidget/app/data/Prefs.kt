@@ -23,11 +23,14 @@ object Prefs {
         charge = sp(c).getBoolean("anim_charge", true),
         low = sp(c).getBoolean("anim_low", true),
         near = sp(c).getBoolean("anim_near", true),
-        normal = sp(c).getBoolean("animate_always", false),
+        shine = sp(c).getBoolean("animate_always", false),
+        ripple = sp(c).getBoolean("anim_always_ripple", false),
+        breathe = sp(c).getBoolean("anim_always_breathe", false),
     )
     fun setAnims(c: Context, a: com.batterywidget.app.widget.Renderer.Anims) = sp(c).edit()
-        .putBoolean("anim_charge", a.charge).putBoolean("anim_low", a.low)
-        .putBoolean("anim_near", a.near).putBoolean("animate_always", a.normal).apply()
+        .putBoolean("anim_charge", a.charge).putBoolean("anim_low", a.low).putBoolean("anim_near", a.near)
+        .putBoolean("animate_always", a.shine).putBoolean("anim_always_ripple", a.ripple)
+        .putBoolean("anim_always_breathe", a.breathe).apply()
 
     fun savePods(c: Context, p: PodsReading, source: PodsSource) = sp(c).edit()
         .putString("pods_src", source.name)
