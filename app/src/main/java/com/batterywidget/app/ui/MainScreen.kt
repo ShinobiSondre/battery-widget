@@ -105,7 +105,7 @@ fun MainScreen() {
     var opacity by remember { mutableIntStateOf(Prefs.opacity(ctx)) }
     var style by remember { mutableStateOf(Prefs.style(ctx)) }
     var anim by remember { mutableStateOf(Prefs.animations(ctx)) }
-    var animAlways by remember { mutableStateOf(Prefs.animateAlways(ctx)) }
+    var anims by remember { mutableStateOf(Prefs.anims(ctx)) }
     var items by remember { mutableStateOf(Devices.read(ctx)) }
     var hasPerms by remember { mutableStateOf(Perms.all(ctx)) }
     var locationOn by remember { mutableStateOf(Perms.locationOn(ctx)) }
@@ -188,8 +188,8 @@ fun MainScreen() {
             val preview = remember(items, style, opacity, wDp, joined) {
                 Renderer.render(items, style, opacity, wDp, hDp, density, highlight = joined).asImageBitmap()
             }
-            val glowFrames = remember(items, style, opacity, wDp, anim, animAlways) {
-                Renderer.alwaysAnimate = animAlways
+            val glowFrames = remember(items, style, opacity, wDp, anim, anims) {
+                Renderer.anims = anims
                 if (anim && Renderer.anyGlow(items)) (0 until Renderer.GLOW_FRAMES).map { f ->
                     Renderer.render(items, style, opacity, wDp, hDp, density, Renderer.Layer.GLOW, frame = f).asImageBitmap()
                 } else emptyList()
@@ -252,7 +252,7 @@ fun MainScreen() {
             Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Animations", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                    Text("Glow while charging and when the battery is low", color = Muted, fontSize = 13.sp)
+                    Text("Turn each one on or off below", color = Muted, fontSize = 13.sp)
                 }
                 Switch(checked = anim, onCheckedChange = {
                     anim = it
@@ -261,19 +261,13 @@ fun MainScreen() {
                 })
             }
             if (anim) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Always animate", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-                        Text("A shine sweeps over every device, even when it's not charging or low. Uses a little more battery.",
-                            color = Muted, fontSize = 13.sp)
-                    }
-                    Switch(checked = animAlways, onCheckedChange = {
-                        animAlways = it
-                        Prefs.setAnimateAlways(ctx, it)
-                        Renderer.alwaysAnimate = it
-                        WidgetUpdater.updateAll(ctx)
-                    })
+                fun set(a: Renderer.Anims) {
+                    anims = a; Prefs.setAnims(ctx, a); Renderer.anims = a; WidgetUpdater.updateAll(ctx)
                 }
+                AnimSwitch("Charging", "Gold shine sweeps around while a device charges", anims.charge) { set(anims.copy(charge = it)) }
+                AnimSwitch("Low battery", "Red ripples at 20% or less", anims.low) { set(anims.copy(low = it)) }
+                AnimSwitch("Getting low", "Slow orange breathing at 21–35%", anims.near) { set(anims.copy(near = it)) }
+                AnimSwitch("Everything else", "Shine in the device's own colour, even when it's not charging or low. Uses a little more battery.", anims.normal) { set(anims.copy(normal = it)) }
             }
         }
 
@@ -496,7 +490,7 @@ private fun DeviceRow(item: com.batterywidget.app.data.Item, spotlight: Boolean)
             Spacer(Modifier.width(12.dp))
             Text(item.name, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
             // Charging, low and nearing-low numbers pulse, in the same colour as on the widget.
-            val pulsing = Renderer.glowColor(item, always = false) != null
+            val pulsing = Renderer.glowColor(item, Renderer.Anims()) != null
             Text(
                 if (item.level < 0) "–" else "$level%", color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.graphicsLayer { alpha = if (pulsing) 0.55f + 0.45f * boltAlpha else 1f }
@@ -522,4 +516,16 @@ private fun DeviceIcon(kind: IconKind) {
     val px = (24 * LocalDensity.current.density).roundToInt()
     val img = remember(kind, px) { Icons.bitmap(kind, px, android.graphics.Color.WHITE).asImageBitmap() }
     Image(img, contentDescription = null, modifier = Modifier.size(24.dp))
+}
+
+
+@Composable
+private fun AnimSwitch(title: String, note: String, on: Boolean, change: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(title, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium)
+            Text(note, color = Muted, fontSize = 12.sp)
+        }
+        Switch(checked = on, onCheckedChange = change)
+    }
 }

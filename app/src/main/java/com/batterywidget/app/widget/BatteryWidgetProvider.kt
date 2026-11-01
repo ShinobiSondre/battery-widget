@@ -166,7 +166,7 @@ object WidgetUpdater {
         val style = Prefs.style(ctx)
         val opacity = Prefs.opacity(ctx)
         val density = ctx.resources.displayMetrics.density
-        Renderer.alwaysAnimate = Prefs.animateAlways(ctx)
+        Renderer.anims = Prefs.anims(ctx)
         val charging = Renderer.anyGlow(items) && Prefs.animations(ctx)
         val offerConnect = PodsConnector.canOffer(ctx)
         for (id in ids) {
@@ -175,7 +175,7 @@ object WidgetUpdater {
             val wDp = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: 250
             val hDp = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 160
             // Nothing changed? Then don't redraw (and don't play a crossfade for nothing).
-            val sig = "${items.joinToString { "${it.name}:${it.level}:${it.charging}" }}|$style|$opacity|$wDp|$hDp|$highlight|$offerConnect|$charging|${Renderer.alwaysAnimate}"
+            val sig = "${items.joinToString { "${it.name}:${it.level}:${it.charging}" }}|$style|$opacity|$wDp|$hDp|$highlight|$offerConnect|$charging|${Renderer.anims}"
             val firstTime = !Prefs.widgetDrawn(ctx, id)
             if (!full && !firstTime && sig == Prefs.widgetSig(ctx, id)) continue
 
@@ -197,8 +197,11 @@ object WidgetUpdater {
             val bmp = Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale, highlight = highlight)
             // The glow frames are drawn smaller (they're soft anyway) to keep the widget light.
             val glow = if (charging) {
+                // As sharp as possible while keeping all frames together under ~8 MB.
+                val glowBytes = wDp * hDp * scale * scale * 4f
+                val glowScale = scale * min(1f, kotlin.math.sqrt(400_000f / glowBytes))
                 (0 until Renderer.GLOW_FRAMES).map { f ->
-                    Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale * 0.5f, Renderer.Layer.GLOW, frame = f)
+                    Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), glowScale, Renderer.Layer.GLOW, frame = f)
                 }
             } else null
 

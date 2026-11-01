@@ -84,16 +84,25 @@ object Renderer {
      * The colour an item pulses in, or null when it shouldn't pulse:
      * orange while charging, red when low (20% or less), orange when nearing low (35% or less).
      */
-    fun glowColor(i: Item, always: Boolean = alwaysAnimate): Int? = when {
-        i.charging -> ORANGE
-        i.level in 0..20 -> RED
-        i.level in 21..35 -> ORANGE
-        always && i.level > 35 -> levelColor(i)
+    fun glowColor(i: Item, a: Anims = anims): Int? = when {
+        i.charging -> if (a.charge) ORANGE else null
+        i.level in 0..20 -> if (a.low) RED else null
+        i.level in 21..35 -> if (a.near) ORANGE else null
+        i.level > 35 -> if (a.normal) levelColor(i) else null
         else -> null
     }
 
-    /** "Always animate" setting: devices that are fine get the shine too, in their own colour. */
-    @Volatile var alwaysAnimate = false
+    /** Which animations are switched on (each one can be turned on or off in the app). */
+    data class Anims(
+        val charge: Boolean = true,  // gold shine while charging
+        val low: Boolean = true,     // red ripple at 20% or less
+        val near: Boolean = true,    // orange breathing at 21-35%
+        val normal: Boolean = false, // shine in the device's own colour when it's simply fine
+    ) {
+        val any get() = charge || low || near || normal
+    }
+
+    @Volatile var anims = Anims()
 
     /** Shine sweeps over items that are charging, or (with always-animate) simply doing fine. */
     private fun shines(i: Item) = i.charging || i.level > 35
@@ -277,14 +286,14 @@ object Renderer {
                 val sweep = 360f * it.level / 100f
                 if (shines(it)) {
                     // Neon shine: a steady glow with a bright white-gold shine sweeping along it.
-                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.3f, g).apply { color = withAlpha(g, 0.45f) })
+                    x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.05f, g).apply { color = withAlpha(g, 0.22f); maskFilter = BlurMaskFilter(3 * x.d, BlurMaskFilter.Blur.NORMAL) })
                     val end = -90f + sweep
                     val head = -90f - 35f + (sweep + 70f) * phase(x.frame)
                     fun seg(half: Float, paint: Paint) {
                         val from = maxOf(-90f, head - half); val to = minOf(end, head + half)
                         if (to > from) x.c.drawArc(oval, from, to - from, false, paint)
                     }
-                    seg(26f, x.halo(stroke * 0.9f, g).apply { color = withAlpha(shineTint(it, g), 0.95f) })
+                    seg(26f, x.halo(stroke * 0.9f, g).apply { color = withAlpha(shineTint(it, g), 0.95f); maskFilter = BlurMaskFilter(2.5f * x.d, BlurMaskFilter.Blur.NORMAL) })
                     seg(7f, x.halo(stroke * 0.35f, WHITE).apply {
                         color = withAlpha(WHITE, 0.9f); maskFilter = BlurMaskFilter(2 * x.d, BlurMaskFilter.Blur.NORMAL)
                     })
@@ -359,7 +368,7 @@ object Renderer {
                 val end = (barLeft + (barRight - barLeft) * it.level / 100f).coerceAtLeast(barLeft + barH)
                 if (shines(it)) {
                     val x0 = barLeft + r; val x1 = end - r
-                    x.c.drawLine(x0, cy, x1, cy, x.halo(barH * 1.3f, g).apply { color = withAlpha(g, 0.45f) })
+                    x.c.drawLine(x0, cy, x1, cy, x.halo(barH * 1.05f, g).apply { color = withAlpha(g, 0.22f); maskFilter = BlurMaskFilter(2 * d, BlurMaskFilter.Blur.NORMAL) })
                     val len = x1 - x0
                     val hw = maxOf(len * 0.12f, 8 * d)
                     val head = x0 - hw + (len + 2 * hw) * phase(x.frame)
@@ -367,7 +376,7 @@ object Renderer {
                         val a0 = maxOf(x0, head - half); val a1 = minOf(x1, head + half)
                         if (a1 > a0) x.c.drawLine(a0, cy, a1, cy, paint)
                     }
-                    seg(hw, x.halo(barH * 0.9f, g).apply { color = withAlpha(shineTint(it, g), 0.95f) })
+                    seg(hw, x.halo(barH * 0.9f, g).apply { color = withAlpha(shineTint(it, g), 0.95f); maskFilter = BlurMaskFilter(2 * d, BlurMaskFilter.Blur.NORMAL) })
                     seg(hw * 0.3f, x.halo(barH * 0.35f, WHITE).apply {
                         color = withAlpha(WHITE, 0.9f); maskFilter = BlurMaskFilter(2 * d, BlurMaskFilter.Blur.NORMAL)
                     })
