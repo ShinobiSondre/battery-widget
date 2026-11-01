@@ -50,9 +50,10 @@ fun ColumnScope.LidTest() {
     Text("Lid test", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
     if (!recording) {
         Text(
-            "Disconnect the AirPods first, case closed. Tap Start: it scans in 3 ways, 20 s each. In EACH part, " +
-                "open the lid next to the phone and tap \"Lid opened\", wait 5 s, then close it and tap " +
-                "\"Lid closed\". When it's done, tap Copy and paste it to Claude.",
+            "Don't disconnect in settings this time: put the AirPods in the case and close the lid, wait 15 s. " +
+                "Tap Start: it listens in 3 ways, 20 s each. In EACH part, open the lid next to the phone and tap " +
+                "\"Lid opened\", wait 5 s, close it and tap \"Lid closed\". If MaterialPods pops up, note in which " +
+                "part. Then tap Copy and paste it to Claude.",
             color = Color(0xFFB6C2CF), fontSize = 13.sp
         )
         Button(

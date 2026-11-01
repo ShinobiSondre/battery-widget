@@ -19,7 +19,7 @@ import android.os.Looper
  */
 object LidRecorder {
     const val PHASE_MS = 20_000L
-    val phases = listOf("No filter", "Full-length AirPods filter", "Apple filter (current)")
+    val phases = listOf("Extended + old broadcasts, no filter", "Old broadcasts only, no filter", "Extended + old, Apple filter")
 
     private data class Entry(val t: Long, val phase: Int, val rssi: Int, val sig: AppleSig)
     private data class Mark(val t: Long, val phase: Int, val label: String)
@@ -43,7 +43,7 @@ object LidRecorder {
     @Synchronized fun start(ctx: Context) {
         val app = ctx.applicationContext
         stop()
-        entries.clear(); marks.clear()
+        entries.clear(); marks.clear(); extendedSeen = 0
         startedAt = System.currentTimeMillis()
         active = true
         phase = -1
@@ -77,21 +77,18 @@ object LidRecorder {
         } catch (_: Exception) { null }
         if (s == null) { mark("(Bluetooth off)"); return }
         val filters = when (p) {
-            0 -> emptyList()
-            // How CAPod asks: the full 27-byte message, only the first two bytes (07 19) must match.
-            1 -> listOf(
-                ScanFilter.Builder().setManufacturerData(
-                    AirPods.APPLE,
-                    ByteArray(27).also { it[0] = 0x07; it[1] = 0x19 },
-                    ByteArray(27).also { it[0] = 1; it[1] = 1 }
-                ).build()
-            )
-            else -> listOf(ScanFilter.Builder().setManufacturerData(AirPods.APPLE, ByteArray(0)).build())
+            2 -> listOf(ScanFilter.Builder().setManufacturerData(AirPods.APPLE, ByteArray(0)).build())
+            else -> emptyList()
         }
-        val settings = ScanSettings.Builder()
+        // Bluetooth 5 "extended" broadcasts are only delivered when an app asks with legacy = false.
+        val extended = p != 1
+        val builder = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
-            .build()
+        if (extended && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            builder.setLegacy(false).setPhy(ScanSettings.PHY_LE_ALL_SUPPORTED)
+        }
+        val settings = builder.build()
         try {
             s.startScan(filters, settings, callback)
             scanner = s; scanning = true
@@ -112,9 +109,13 @@ object LidRecorder {
         val t = System.currentTimeMillis() - startedAt
         for (r in results) {
             val data = r.scanRecord?.getManufacturerSpecificData(AirPods.APPLE) ?: continue
-            for (sig in AppleSig.all(data)) entries += Entry(t, phase, r.rssi, sig)
+            val ext = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O && !r.isLegacy
+            if (ext) extendedSeen++
+            for (sig in AppleSig.all(data)) entries += Entry(t, phase, r.rssi, if (ext) sig.copy(extra = (sig.extra + " EXT").trim()) else sig)
         }
     }
+
+    @Volatile private var extendedSeen = 0
 
     @Synchronized fun mark(label: String) {
         if (active) marks += Mark(System.currentTimeMillis() - startedAt, phase, label)
@@ -129,7 +130,7 @@ object LidRecorder {
     /** Per phase: how many messages of each type, then a 2-second timeline with your taps. */
     @Synchronized fun summary(): String {
         if (entries.isEmpty() && marks.isEmpty()) return "Nothing recorded yet."
-        val sb = StringBuilder("Lid test v2 (${entries.size} Apple messages)\n")
+        val sb = StringBuilder("Lid test v3 (${entries.size} Apple messages, $extendedSeen extended)\n")
         for ((p, name) in phases.withIndex()) {
             val es = entries.filter { it.phase == p }
             val ms = marks.filter { it.phase == p }

@@ -77,6 +77,7 @@ object AirPods {
         val connected = intent.action == android.bluetooth.BluetoothDevice.ACTION_ACL_CONNECTED
         val changed = Prefs.podsLinked(ctx) != connected
         if (changed) Prefs.addEvent(ctx, if (connected) "AirPods linked" else "AirPods unlinked")
+        if (changed) LidRecorder.mark(if (connected) "(AirPods linked by Bluetooth)" else "(AirPods unlinked)")
         Prefs.setPodsLinked(ctx, connected)
         if (connected) Prefs.setPodsAddress(ctx, d.address) else AapClient.stop()
         // Lid opened: the AirPods reach out to the phone on their own. Finish the job.
