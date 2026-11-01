@@ -196,7 +196,7 @@ object PodsConnector {
         if (soundConnected(app)) return
         if (window.start(System.currentTimeMillis(), why)) {
             triesThisWindow = 0
-            Prefs.addEvent(app, "auto-connect: $why, trying every 3 s for 30 s")
+            Prefs.addEvent(app, "auto-connect: $why, connecting (one retry after 3 s)")
         }
         if (!ticking) { ticking = true; tick(app) }
     }
