@@ -178,7 +178,8 @@ object PodsConnector {
     @Volatile private var lastLid: Lid? = null
     @Volatile private var lastSkip = ""
 
-    private val window = RetryWindow()
+    // After a real event (lid message, AirPods linking up, widget tap): try now and once more 3 s later.
+    private val window = RetryWindow(intervalMs = 3_000, lengthMs = 6_000)
     private val pause = DisconnectPause()
     @Volatile private var lastSeenAt = 0L
     @Volatile private var ticking = false
@@ -248,6 +249,7 @@ object PodsConnector {
 
     // ---- Live Find My signal: shown on the widget, and a quick restart when it gets strong ----
     const val RESTART_RSSI = -70
+    private const val FIND_MY_TRIGGER = false
     @Volatile var signalRssi = 0; private set
     @Volatile var signalAt = 0L; private set
     @Volatile private var strongAt = 0L
@@ -261,6 +263,8 @@ object PodsConnector {
         // The median of the last few seconds, so one odd reading can't trigger anything.
         val smooth = smoother.median(now) ?: return
         signalRssi = smooth; signalAt = now
+        // Auto-connect no longer reacts to the Find My signal (too unreliable); only real events.
+        if (!FIND_MY_TRIGGER) return
         if (smooth < RESTART_RSSI) return
         val crossed = now - strongAt > 15_000 // was weaker (or unheard) for a while: it just got close
         strongAt = now
