@@ -206,9 +206,8 @@ fun MainScreen() {
                     Image(img, contentDescription = "Widget preview", modifier = Modifier.fillMaxSize())
                 }
                 if (glowFrames.isNotEmpty()) {
-                    Crossfade(targetState = glowFrame, animationSpec = tween(Renderer.FRAME_MS), label = "glow") { f ->
-                        Image(glowFrames[f % glowFrames.size], contentDescription = null, modifier = Modifier.fillMaxSize())
-                    }
+                    // Same as the widget: frames swap without fading.
+                    Image(glowFrames[glowFrame % glowFrames.size], contentDescription = null, modifier = Modifier.fillMaxSize())
                 }
             }
         }

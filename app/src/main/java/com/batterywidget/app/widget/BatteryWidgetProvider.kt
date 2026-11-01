@@ -199,7 +199,7 @@ object WidgetUpdater {
             val glow = if (charging) {
                 // As sharp as possible while keeping all frames together under ~8 MB.
                 val glowBytes = wDp * hDp * scale * scale * 4f
-                val glowScale = scale * min(1f, kotlin.math.sqrt(400_000f / glowBytes))
+                val glowScale = scale * min(1f, kotlin.math.sqrt(270_000f / glowBytes))
                 (0 until Renderer.GLOW_FRAMES).map { f ->
                     Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), glowScale, Renderer.Layer.GLOW, frame = f)
                 }

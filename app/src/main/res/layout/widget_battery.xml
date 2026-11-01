@@ -29,15 +29,14 @@
             android:scaleType="fitCenter" />
     </ViewFlipper>
 
-    <!-- Glow frames (electricity while charging, heartbeat when low), flipped by the launcher -->
+    <!-- Animation frames, flipped by the launcher. No fade between them on purpose: on some launchers
+         a fade leaves old frames drawn on top of each other, so the whole loop shows at once. -->
     <ViewFlipper
         android:id="@+id/widget_glow"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:autoStart="true"
-        android:flipInterval="60"
-        android:inAnimation="@anim/glow_in"
-        android:outAnimation="@anim/glow_out"
+        android:flipInterval="40"
         android:visibility="gone">
 
         <ImageView
@@ -175,6 +174,76 @@
 
         <ImageView
             android:id="@+id/widget_glow19"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow20"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow21"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow22"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow23"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow24"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow25"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow26"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow27"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow28"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:importantForAccessibility="no"
+            android:scaleType="fitCenter" />
+
+        <ImageView
+            android:id="@+id/widget_glow29"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:importantForAccessibility="no"

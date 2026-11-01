@@ -127,8 +127,8 @@ object Renderer {
     }
 
     /** The glow is drawn as this many frames; the widget flips through them [FRAME_MS] apart. */
-    const val GLOW_FRAMES = 20
-    const val FRAME_MS = 60
+    const val GLOW_FRAMES = 30
+    const val FRAME_MS = 40
 
     private const val SHINE = 0xFFFDE68A.toInt()
 
