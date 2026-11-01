@@ -84,11 +84,25 @@ object Renderer {
      * The colour an item pulses in, or null when it shouldn't pulse:
      * orange while charging, red when low (20% or less), orange when nearing low (35% or less).
      */
-    fun glowColor(i: Item): Int? = when {
+    fun glowColor(i: Item, always: Boolean = alwaysAnimate): Int? = when {
         i.charging -> ORANGE
         i.level in 0..20 -> RED
         i.level in 21..35 -> ORANGE
+        always && i.level > 35 -> levelColor(i)
         else -> null
+    }
+
+    /** "Always animate" setting: devices that are fine get the shine too, in their own colour. */
+    @Volatile var alwaysAnimate = false
+
+    /** Shine sweeps over items that are charging, or (with always-animate) simply doing fine. */
+    private fun shines(i: Item) = i.charging || i.level > 35
+
+    /** The bright highlight colour for a shine: gold while charging, otherwise a light tint of the item's colour. */
+    private fun shineTint(i: Item, g: Int): Int {
+        if (i.charging) return SHINE
+        fun lift(v: Int) = (v + (255 - v) * 0.6f).toInt()
+        return Color.rgb(lift(Color.red(g)), lift(Color.green(g)), lift(Color.blue(g)))
     }
 
     fun anyGlow(items: List<Item>) = items.any { glowColor(it) != null }
@@ -115,6 +129,7 @@ object Renderer {
      */
     private fun glowStrength(i: Item, frame: Int): Float = when {
         i.charging -> 1f
+        i.level > 35 -> 1f
         i.level in 0..20 -> 0.3f + 0.7f * (1 - ripple(frame)).let { it * it }
         i.level in 21..35 -> 0.5f - 0.5f * kotlin.math.cos(2 * Math.PI * frame / GLOW_FRAMES).toFloat()
         else -> 0f
@@ -260,7 +275,7 @@ object Renderer {
                 val g = glowColor(it) ?: return@forEachIndexed
                 if (it.level <= 0 || !glowOn(it, x.frame)) return@forEachIndexed
                 val sweep = 360f * it.level / 100f
-                if (it.charging) {
+                if (shines(it)) {
                     // Neon shine: a steady glow with a bright white-gold shine sweeping along it.
                     x.c.drawArc(oval, -90f, sweep, false, x.halo(stroke * 1.3f, g).apply { color = withAlpha(g, 0.45f) })
                     val end = -90f + sweep
@@ -269,7 +284,7 @@ object Renderer {
                         val from = maxOf(-90f, head - half); val to = minOf(end, head + half)
                         if (to > from) x.c.drawArc(oval, from, to - from, false, paint)
                     }
-                    seg(26f, x.halo(stroke * 0.9f, SHINE).apply { color = withAlpha(SHINE, 0.95f) })
+                    seg(26f, x.halo(stroke * 0.9f, g).apply { color = withAlpha(shineTint(it, g), 0.95f) })
                     seg(7f, x.halo(stroke * 0.35f, WHITE).apply {
                         color = withAlpha(WHITE, 0.9f); maskFilter = BlurMaskFilter(2 * x.d, BlurMaskFilter.Blur.NORMAL)
                     })
@@ -342,7 +357,7 @@ object Renderer {
                 val g = glowColor(it) ?: return@forEachIndexed
                 if (!hasBar || it.level <= 0 || !glowOn(it, x.frame)) return@forEachIndexed
                 val end = (barLeft + (barRight - barLeft) * it.level / 100f).coerceAtLeast(barLeft + barH)
-                if (it.charging) {
+                if (shines(it)) {
                     val x0 = barLeft + r; val x1 = end - r
                     x.c.drawLine(x0, cy, x1, cy, x.halo(barH * 1.3f, g).apply { color = withAlpha(g, 0.45f) })
                     val len = x1 - x0
@@ -352,7 +367,7 @@ object Renderer {
                         val a0 = maxOf(x0, head - half); val a1 = minOf(x1, head + half)
                         if (a1 > a0) x.c.drawLine(a0, cy, a1, cy, paint)
                     }
-                    seg(hw, x.halo(barH * 0.9f, SHINE).apply { color = withAlpha(SHINE, 0.95f) })
+                    seg(hw, x.halo(barH * 0.9f, g).apply { color = withAlpha(shineTint(it, g), 0.95f) })
                     seg(hw * 0.3f, x.halo(barH * 0.35f, WHITE).apply {
                         color = withAlpha(WHITE, 0.9f); maskFilter = BlurMaskFilter(2 * d, BlurMaskFilter.Blur.NORMAL)
                     })
@@ -427,7 +442,7 @@ object Renderer {
                 val g = x.text(numSize, bold = true, color = gc).apply {
                     clearShadowLayer(); maskFilter = BlurMaskFilter(8 * d, BlurMaskFilter.Blur.NORMAL)
                 }
-                g.alpha = (255 * if (low.charging) 0.35f + 0.65f * shinePulse(x.frame) else glowStrength(low, x.frame)).toInt()
+                g.alpha = (255 * if (shines(low)) 0.35f + 0.65f * shinePulse(x.frame) else glowStrength(low, x.frame)).toInt()
                 x.c.drawText(t, a.left, numY, g)
             }
         } else {
@@ -454,7 +469,7 @@ object Renderer {
             if (x.glow) {
                 val g = glowColor(it)
                 if (g != null && glowOn(it, x.frame)) {
-                    val k = if (it.charging) 0.3f + 0.7f * shinePulse(x.frame) else glowStrength(it, x.frame)
+                    val k = if (shines(it)) 0.3f + 0.7f * shinePulse(x.frame) else glowStrength(it, x.frame)
                     x.c.drawRoundRect(chip, chipH / 2f, chipH / 2f, x.halo(2.5f * d, g).apply { color = withAlpha(g, 0.85f * k) })
                 }
             } else {

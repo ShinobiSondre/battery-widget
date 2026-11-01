@@ -166,6 +166,7 @@ object WidgetUpdater {
         val style = Prefs.style(ctx)
         val opacity = Prefs.opacity(ctx)
         val density = ctx.resources.displayMetrics.density
+        Renderer.alwaysAnimate = Prefs.animateAlways(ctx)
         val charging = Renderer.anyGlow(items) && Prefs.animations(ctx)
         val offerConnect = PodsConnector.canOffer(ctx)
         for (id in ids) {
@@ -174,7 +175,7 @@ object WidgetUpdater {
             val wDp = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH).takeIf { it > 0 } ?: 250
             val hDp = o.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT).takeIf { it > 0 } ?: 160
             // Nothing changed? Then don't redraw (and don't play a crossfade for nothing).
-            val sig = "${items.joinToString { "${it.name}:${it.level}:${it.charging}" }}|$style|$opacity|$wDp|$hDp|$highlight|$offerConnect|$charging"
+            val sig = "${items.joinToString { "${it.name}:${it.level}:${it.charging}" }}|$style|$opacity|$wDp|$hDp|$highlight|$offerConnect|$charging|${Renderer.alwaysAnimate}"
             val firstTime = !Prefs.widgetDrawn(ctx, id)
             if (!full && !firstTime && sig == Prefs.widgetSig(ctx, id)) continue
 

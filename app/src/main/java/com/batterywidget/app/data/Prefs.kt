@@ -18,6 +18,9 @@ object Prefs {
     /** Glow animations on the widget (charging / low battery). */
     fun animations(c: Context) = sp(c).getBoolean("animations", true)
     fun setAnimations(c: Context, v: Boolean) = sp(c).edit().putBoolean("animations", v).apply()
+    /** Animate all the time, not only while charging or low. */
+    fun animateAlways(c: Context) = sp(c).getBoolean("animate_always", false)
+    fun setAnimateAlways(c: Context, v: Boolean) = sp(c).edit().putBoolean("animate_always", v).apply()
 
     fun savePods(c: Context, p: PodsReading, source: PodsSource) = sp(c).edit()
         .putString("pods_src", source.name)

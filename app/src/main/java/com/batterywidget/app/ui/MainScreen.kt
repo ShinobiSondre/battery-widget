@@ -105,6 +105,7 @@ fun MainScreen() {
     var opacity by remember { mutableIntStateOf(Prefs.opacity(ctx)) }
     var style by remember { mutableStateOf(Prefs.style(ctx)) }
     var anim by remember { mutableStateOf(Prefs.animations(ctx)) }
+    var animAlways by remember { mutableStateOf(Prefs.animateAlways(ctx)) }
     var items by remember { mutableStateOf(Devices.read(ctx)) }
     var hasPerms by remember { mutableStateOf(Perms.all(ctx)) }
     var locationOn by remember { mutableStateOf(Perms.locationOn(ctx)) }
@@ -187,7 +188,8 @@ fun MainScreen() {
             val preview = remember(items, style, opacity, wDp, joined) {
                 Renderer.render(items, style, opacity, wDp, hDp, density, highlight = joined).asImageBitmap()
             }
-            val glowFrames = remember(items, style, opacity, wDp, anim) {
+            val glowFrames = remember(items, style, opacity, wDp, anim, animAlways) {
+                Renderer.alwaysAnimate = animAlways
                 if (anim && Renderer.anyGlow(items)) (0 until Renderer.GLOW_FRAMES).map { f ->
                     Renderer.render(items, style, opacity, wDp, hDp, density, Renderer.Layer.GLOW, frame = f).asImageBitmap()
                 } else emptyList()
@@ -257,6 +259,21 @@ fun MainScreen() {
                     Prefs.setAnimations(ctx, it)
                     WidgetUpdater.updateAll(ctx)
                 })
+            }
+            if (anim) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Always animate", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                        Text("A shine sweeps over every device, even when it's not charging or low. Uses a little more battery.",
+                            color = Muted, fontSize = 13.sp)
+                    }
+                    Switch(checked = animAlways, onCheckedChange = {
+                        animAlways = it
+                        Prefs.setAnimateAlways(ctx, it)
+                        Renderer.alwaysAnimate = it
+                        WidgetUpdater.updateAll(ctx)
+                    })
+                }
             }
         }
 
@@ -479,7 +496,7 @@ private fun DeviceRow(item: com.batterywidget.app.data.Item, spotlight: Boolean)
             Spacer(Modifier.width(12.dp))
             Text(item.name, color = Color.White, fontSize = 15.sp, modifier = Modifier.weight(1f))
             // Charging, low and nearing-low numbers pulse, in the same colour as on the widget.
-            val pulsing = Renderer.glowColor(item) != null
+            val pulsing = Renderer.glowColor(item, always = false) != null
             Text(
                 if (item.level < 0) "–" else "$level%", color = color, fontSize = 15.sp, fontWeight = FontWeight.Bold,
                 modifier = Modifier.graphicsLayer { alpha = if (pulsing) 0.55f + 0.45f * boltAlpha else 1f }
