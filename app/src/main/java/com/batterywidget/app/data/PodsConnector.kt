@@ -353,6 +353,7 @@ object PodsConnector {
      * they're nearby and not connected. Connecting does exactly what the widget button does.
      */
     fun autoConnect(ctx: Context, rssi: Int, lid: Lid) {
+        Finder.onPodsHeard(rssi) // warmer / colder
         val app = ctx.applicationContext
         if (lid != lastLid && lid != Lid.UNKNOWN) {
             val what = when (lid) { Lid.OPEN -> "case opened"; Lid.CLOSED -> "case closed"; else -> "AirPods out of the case" }

@@ -338,6 +338,8 @@ fun MainScreen() {
             if (debug.isNotBlank()) Text(debug, color = Muted.copy(alpha = 0.7f), fontSize = 11.sp)
         }
 
+        Section { FindCard() }
+
         Section { LidTest() }
 
         Section {

@@ -83,6 +83,9 @@ object AirPods {
         // Lid opened: the AirPods reach out to the phone on their own. Finish the job.
         if (connected && changed) PodsConnector.onLinked(ctx)
         if (!connected && changed) PodsConnector.onUnlinked(ctx)
+        // Find my AirPods: remember where you were when they disconnected.
+        if (!connected && changed) Finder.onDisconnected(ctx)
+        if (connected && changed) Finder.onConnected(ctx)
     }
 
     /**
