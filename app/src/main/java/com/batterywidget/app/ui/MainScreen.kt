@@ -25,6 +25,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
 import androidx.compose.runtime.key
 import androidx.compose.ui.graphics.graphicsLayer
 import android.provider.Settings
@@ -119,6 +120,7 @@ fun MainScreen() {
     var status by remember { mutableStateOf(listenerStatus(ctx)) }
     var debug by remember { mutableStateOf(debugLine(ctx)) }
     var askedOnce by remember { mutableStateOf(false) }
+    var tab by remember { mutableIntStateOf(0) }
     // Devices that just connected get a short spotlight, like on the widget.
     var joined by remember { mutableStateOf(emptySet<String>()) }
     var lastNames by remember { mutableStateOf(items.map { it.name }.toSet()) }
@@ -170,6 +172,25 @@ fun MainScreen() {
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
         Text("Battery Widget", color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+
+        Tabs(listOf("Widget", "Debug"), tab) { tab = it }
+
+        if (tab == 1) {
+            Section {
+                Text("AirPods listener", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(status, color = Muted, fontSize = 13.sp)
+                if (debug.isNotBlank()) Text(debug, color = Muted.copy(alpha = 0.7f), fontSize = 11.sp)
+            }
+            Section {
+                Text("Auto-connect", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text(
+                    if (autoNote.isNotBlank()) "Last auto-connect: $autoNote" else "No auto-connect yet",
+                    color = Muted, fontSize = 13.sp
+                )
+            }
+            Section { LidTest() }
+            Text("Version ${BuildConfig.VERSION_NAME}", color = Muted, fontSize = 14.sp)
+        } else {
 
         // Live preview over a busy "wallpaper", so the transparency is easy to judge.
         BoxWithConstraints(
@@ -363,13 +384,9 @@ fun MainScreen() {
                     status = listenerStatus(ctx)
                 })
             }
-            Text(status, color = Muted, fontSize = 13.sp)
-            if (debug.isNotBlank()) Text(debug, color = Muted.copy(alpha = 0.7f), fontSize = 11.sp)
         }
 
         Section { FindCard() }
-
-        Section { LidTest() }
 
         Section {
             Text("Devices", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
@@ -401,9 +418,6 @@ fun MainScreen() {
                 }
                 Switch(checked = autoConnect, onCheckedChange = { autoConnect = it; Prefs.setAutoConnect(ctx, it); Prefs.addEvent(ctx, "Auto-connect turned ${if (it) "on" else "off"}") })
             }
-            if (autoConnect && autoNote.isNotBlank()) {
-                Text("Last auto-connect: $autoNote", color = Muted.copy(alpha = 0.7f), fontSize = 11.sp)
-            }
             if (items.size == 1) {
                 Text(
                     "Connect your AirPods or other Bluetooth devices and they'll show up here. AirPods appear when they're out of the case or the lid is open.",
@@ -434,6 +448,29 @@ fun MainScreen() {
                     if (msg != null) Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
                 }
             }) { Text("Check for update") }
+        }
+        }
+    }
+}
+
+/** Two pill buttons to switch between the main page and the debug page. */
+@Composable
+private fun Tabs(names: List<String>, selected: Int, pick: (Int) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Color(0xFF16222E)).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        names.forEachIndexed { i, name ->
+            val on = i == selected
+            Box(
+                Modifier.weight(1f).height(40.dp).clip(RoundedCornerShape(10.dp))
+                    .background(if (on) Color(0xFF2B3B4D) else Color.Transparent)
+                    .clickable { pick(i) },
+                contentAlignment = Alignment.Center
+            ) {
+                Text(name, color = if (on) Color.White else Muted, fontSize = 15.sp,
+                    fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
+            }
         }
     }
 }
