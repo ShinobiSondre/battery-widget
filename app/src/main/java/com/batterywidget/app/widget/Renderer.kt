@@ -51,7 +51,8 @@ object Renderer {
      */
     fun render(
         items: List<Item>, style: WidgetStyle, opacity: Int, wDp: Float, hDp: Float, scale: Float,
-        layer: Layer = Layer.NORMAL, highlight: Set<String> = emptySet(), frame: Int = 0
+        layer: Layer = Layer.NORMAL, highlight: Set<String> = emptySet(), frame: Int = 0,
+        reserveCorner: Boolean = false,
     ): Bitmap {
         val w = (wDp * scale).toInt().coerceAtLeast(1)
         val h = (hDp * scale).toInt().coerceAtLeast(1)
@@ -72,6 +73,13 @@ object Renderer {
         val x = Ctx(c, d, opacity < 40, layer == Layer.GLOW, highlight, frame)
         val pad = 14 * d
         val area = RectF(pad, pad, w - pad, h - pad)
+        // Keep clear of the connect button in the top-right corner (34 dp + 8 dp margin):
+        // on wide widgets give up a strip on the right, on tall ones a strip at the top.
+        if (reserveCorner) {
+            val clear = 46 * d
+            if (wDp >= hDp * 1.2f) area.right = minOf(area.right, w - clear)
+            else area.top = maxOf(area.top, clear)
+        }
         when (style) {
             WidgetStyle.RINGS -> rings(x, items, area)
             WidgetStyle.BARS -> bars(x, items, area)

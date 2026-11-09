@@ -194,14 +194,14 @@ object WidgetUpdater {
 
             // Keep the pictures small enough for the launcher to accept.
             val scale = min(density, 800f / max(wDp, hDp))
-            val bmp = Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale, highlight = highlight)
+            val bmp = Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), scale, highlight = highlight, reserveCorner = offerConnect)
             // The glow frames are drawn smaller (they're soft anyway) to keep the widget light.
             val glow = if (charging) {
                 // As sharp as possible while keeping all frames together under ~8 MB.
                 val glowBytes = wDp * hDp * scale * scale * 4f
                 val glowScale = scale * min(1f, kotlin.math.sqrt(270_000f / glowBytes))
                 (0 until Renderer.GLOW_FRAMES).map { f ->
-                    Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), glowScale, Renderer.Layer.GLOW, frame = f)
+                    Renderer.render(items, style, opacity, wDp.toFloat(), hDp.toFloat(), glowScale, Renderer.Layer.GLOW, frame = f, reserveCorner = offerConnect)
                 }
             } else null
 
