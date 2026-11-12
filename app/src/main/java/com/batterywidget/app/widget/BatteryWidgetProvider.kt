@@ -70,7 +70,7 @@ class BluetoothEventReceiver : BroadcastReceiver() {
         val fresh = intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED
         WidgetUpdater.updateAll(ctx, full = fresh)
         WidgetUpdater.refreshSoon(ctx) // battery levels are reported a little after connecting
-        Handler(Looper.getMainLooper()).postDelayed({ pending.finish() }, 2500)
+        Handler(Looper.getMainLooper()).postDelayed({ AirPods.updateScanning(ctx); pending.finish() }, 2500)
     }
 }
 

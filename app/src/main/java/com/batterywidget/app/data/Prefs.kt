@@ -71,6 +71,8 @@ object Prefs {
     /** When the background (system) AirPods scan was last started; 0 = needs starting. */
     fun systemScanAt(c: Context) = sp(c).getLong("sys_scan_at", 0L)
     fun setSystemScanAt(c: Context, v: Long) = sp(c).edit().putLong("sys_scan_at", v).apply()
+    fun systemScanMode(c: Context) = sp(c).getInt("sys_scan_mode", -99)
+    fun setSystemScanMode(c: Context, v: Int) = sp(c).edit().putInt("sys_scan_mode", v).apply()
 
     /** Keep listening for AirPods in the background (with a small ongoing notification). */
     fun alwaysListen(c: Context) = sp(c).getBoolean("always_listen", true)

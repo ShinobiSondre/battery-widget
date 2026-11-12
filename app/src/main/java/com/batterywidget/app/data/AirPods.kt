@@ -161,7 +161,25 @@ object AirPods {
     fun sync(ctx: Context) {
         AirPodsService.ensure(ctx)
         if (PodsConnector.soundConnected(ctx)) AapClient.start(ctx)
-        if (Prefs.alwaysListen(ctx)) startSystemScan(ctx) else stopSystemScan(ctx)
+        updateScanning(ctx)
+    }
+
+    /** True while the app is on screen: then scanning is fast (for Find and the debug tab). */
+    @Volatile var appVisible = false
+
+    /**
+     * Turns the one Bluetooth scan on or off. It only runs when it's useful:
+     * Always listen is on, AirPods are paired, and they're not connected (once connected,
+     * their battery comes over their own channel and there's nothing to wait for).
+     * In the background it scans in Android's low-power mode with the filter on the Bluetooth
+     * chip, so the phone stays asleep until an AirPods status message arrives.
+     */
+    fun updateScanning(ctx: Context, force: Boolean = false) {
+        val want = Prefs.alwaysListen(ctx) && Perms.hasScan(ctx) &&
+            PodsConnector.pairedPods(ctx) != null &&
+            (appVisible || !PodsConnector.soundConnected(ctx))
+        if (want) startSystemScan(ctx, force)
+        else if (Prefs.systemScanAt(ctx) != 0L) stopSystemScan(ctx)
     }
 
     private fun systemScanIntent(ctx: Context): PendingIntent {
@@ -178,20 +196,20 @@ object AirPods {
         if (!Perms.hasScan(ctx)) return
         // It keeps running on its own once started, so don't restart it on every little event:
         // each start counts toward Android's limit of 5 scan starts in 30 seconds.
+        val mode = if (appVisible) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_LOW_POWER
         val age = System.currentTimeMillis() - Prefs.systemScanAt(ctx)
-        if (!force && age in 0 until 15 * 60_000L) return
+        if (!force && mode == Prefs.systemScanMode(ctx) && age in 0 until 30 * 60_000L) return
         if (!ScanGate.tryStart(ctx, "background scan")) return
         try {
             val a = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
             val scanner = (if (a != null && a.isEnabled) a.bluetoothLeScanner else null) ?: return
-            // Only AirPods status messages (07 19), so the app isn't woken for every iPhone nearby.
+            // Only AirPods status messages (type 07, any length: Pro 3 send a shorter one), so the
+            // app isn't woken for every iPhone, Watch or Find My tag nearby.
             val filter = ScanFilter.Builder()
-                .setManufacturerData(APPLE, byteArrayOf(0x07, 0x19), byteArrayOf(-1, -1))
+                .setManufacturerData(APPLE, byteArrayOf(0x07), byteArrayOf(-1))
                 .build()
-            // Fastest scanning; the narrow filter runs on the Bluetooth chip, so the phone
-            // itself stays asleep until AirPods actually speak.
             val settings = ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setScanMode(mode)
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
                 .setMatchMode(ScanSettings.MATCH_MODE_AGGRESSIVE)
                 .build()
@@ -199,6 +217,8 @@ object AirPods {
             scanner.stopScan(pi)
             scanner.startScan(listOf(filter), settings, pi)
             Prefs.setSystemScanAt(ctx, System.currentTimeMillis())
+            Prefs.setSystemScanMode(ctx, mode)
+            Prefs.setListenerNote(ctx, if (appVisible) "Listening (fast, app open)" else "Listening (low power, AirPods not connected)")
         } catch (_: Exception) { }
     }
 
@@ -209,6 +229,7 @@ object AirPods {
             a?.bluetoothLeScanner?.stopScan(systemScanIntent(ctx))
         } catch (_: Exception) { }
         Prefs.setSystemScanAt(ctx, 0L)
+        Prefs.setListenerNote(ctx, if (Prefs.alwaysListen(ctx)) "Not scanning (AirPods connected or not paired)" else "Off")
     }
 
     private class Tally { var count = 0; var best = -999; var hex = "" }
@@ -306,10 +327,13 @@ class AirPodsScanReceiver : BroadcastReceiver() {
         val results = IntentCompat.getParcelableArrayListExtra(
             intent, BluetoothLeScanner.EXTRA_LIST_SCAN_RESULT, ScanResult::class.java
         ) ?: return
-        // Stay awake a moment so a delayed redraw can finish.
-        val pending = goAsync()
-        AirPods.onResults(ctx, results)
-        AirPodsService.ensure(ctx) // bring the listener back if it was closed
-        android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ pending.finish() }, 3000)
+        val changed = AirPods.onResults(ctx, results)
+        if (changed) AirPodsService.instance?.refreshNotice()
+        if (!AirPodsService.running) AirPodsService.ensure(ctx) // bring the listener back if it was closed
+        // Only stay awake when there's a redraw to finish; otherwise let the phone sleep right away.
+        if (changed) {
+            val pending = goAsync()
+            android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ pending.finish() }, 2_500)
+        }
     }
 }

@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         Installer.appVisible = true
+        AirPods.appVisible = true
         Updater.onResume(this)
         AirPods.sync(this) // start the always-on AirPods listener
     }
@@ -50,6 +51,8 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         Installer.appVisible = false
+        AirPods.appVisible = false
+        AirPods.updateScanning(this) // back to low-power listening, or none
         WidgetUpdater.updateAll(this)
     }
 }
